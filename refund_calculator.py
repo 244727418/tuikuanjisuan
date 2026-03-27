@@ -106,9 +106,9 @@ class RefundCalculator:
     def __init__(self):
         self.root = tk.Tk()
         self.root.geometry("750x600")  # 增大窗口尺寸以适应更多内容
-        self.root.overrideredirect(True)
+        self.root.title("退款计算器")  # 设置窗口标题
         self.root.configure(bg="#f4f6f8")
-
+        
         self.is_topmost = False
 
         # 创建气泡提示
@@ -118,7 +118,6 @@ class RefundCalculator:
         self.load_config()
 
         # 创建界面
-        self.create_titlebar()
         self.create_ui()
         self.create_tray()
         self.register_hotkey()
@@ -126,73 +125,28 @@ class RefundCalculator:
         # 绑定窗口事件
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
 
-    # ---------------- 标题栏 ----------------
-    def create_titlebar(self):
-        """创建自定义标题栏"""
-        try:
-            bar = tk.Frame(self.root, bg="#2c3e50", height=36)
-            bar.pack(fill="x")
-
-            tk.Label(bar, text="山药赔付计算器", fg="white", bg="#2c3e50", 
-                    font=("Arial", 10, "bold")).pack(side="left", padx=10)
-
-            btns = tk.Frame(bar, bg="#2c3e50")
-            btns.pack(side="right")
-
-            # 置顶按钮
-            self.pin_btn = tk.Button(btns, text="📌", bg="#2c3e50", fg="white", 
-                                   bd=0, font=("Arial", 12), width=3, height=1,
-                                   command=self.toggle_top)
-            self.pin_btn.pack(side="left", padx=2)
-
-            # 最小化按钮
-            tk.Button(btns, text="─", bg="#2c3e50", fg="white", bd=0, 
-                     font=("Arial", 12), width=3, height=1,
-                     command=self.minimize).pack(side="left", padx=2)
-
-            # 关闭按钮
-            tk.Button(btns, text="✕", bg="#2c3e50", fg="white", bd=0, 
-                     font=("Arial", 12), width=3, height=1,
-                     command=self.hide_window).pack(side="left", padx=2)
-
-            # 绑定标题栏拖动
-            bar.bind("<Button-1>", self.start_move)
-            bar.bind("<B1-Motion>", self.move)
-            
-        except Exception as e:
-            print(f"创建标题栏失败: {e}")
-
-    def start_move(self, event):
-        """开始拖动窗口"""
-        self.x = event.x
-        self.y = event.y
-
-    def move(self, event):
-        """拖动窗口"""
-        try:
-            deltax = event.x - self.x
-            deltay = event.y - self.y
-            x = self.root.winfo_x() + deltax
-            y = self.root.winfo_y() + deltay
-            self.root.geometry(f"+{x}+{y}")
-        except Exception as e:
-            print(f"拖动窗口失败: {e}")
-
     def toggle_top(self):
         """切换窗口置顶状态"""
         try:
             self.is_topmost = not self.is_topmost
             self.root.attributes("-topmost", self.is_topmost)
-            self.pin_btn.config(text="📍" if self.is_topmost else "📌")
         except Exception as e:
             print(f"切换置顶状态失败: {e}")
 
     def minimize(self):
-        """最小化窗口"""
+        """最小化窗口到任务栏"""
         try:
+            # 使用iconify()方法最小化到任务栏
             self.root.iconify()
         except Exception as e:
             print(f"最小化失败: {e}")
+            # 如果iconify失败，尝试其他方法
+            try:
+                # 尝试设置窗口状态为最小化
+                self.root.state('iconic')
+            except:
+                # 最后尝试隐藏窗口
+                self.root.withdraw()
 
     def hide_window(self):
         """隐藏窗口到托盘"""
@@ -771,7 +725,7 @@ class RefundCalculator:
             
             # 创建菜单
             menu = pystray.Menu(
-                pystray.MenuItem("显示", lambda: self.root.deiconify()),
+                pystray.MenuItem("显示", self.show_from_tray),
                 pystray.MenuItem("退出", self.quit_app)
             )
             
@@ -783,6 +737,32 @@ class RefundCalculator:
             
         except Exception as e:
             print(f"创建托盘失败: {e}")
+    
+    def show_from_tray(self):
+        """从系统托盘显示窗口，确保显示在最上方"""
+        try:
+            # 显示窗口
+            self.root.deiconify()
+            
+            # 确保窗口显示在最前方
+            self.root.lift()
+            self.root.focus_force()
+            
+            # 临时置顶，确保不会被其他窗口遮挡
+            self.root.attributes('-topmost', True)
+            
+            # 短暂延迟后取消置顶（如果用户没有手动设置置顶）
+            def reset_topmost():
+                if not self.is_topmost:
+                    self.root.attributes('-topmost', False)
+            
+            self.root.after(100, reset_topmost)  # 100ms后重置置顶状态
+            
+            # 激活窗口并获取焦点
+            self.root.update()
+            
+        except Exception as e:
+            print(f"从托盘显示窗口失败: {e}")
 
     # ---------------- 热键功能 ----------------
     def register_hotkey(self):
@@ -797,8 +777,8 @@ class RefundCalculator:
         """切换窗口显示/隐藏"""
         try:
             if self.root.state() == "withdrawn":
-                self.root.deiconify()
-                self.root.lift()
+                # 使用与系统托盘相同的显示逻辑
+                self.show_from_tray()
             else:
                 self.root.withdraw()
         except Exception as e:
