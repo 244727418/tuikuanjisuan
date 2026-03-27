@@ -1,0 +1,23 @@
+# Python 虚拟环境
+js/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 配置文件
+config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 打包文件
+*.exe
+*.msi
+*.dmg
+dist/
+build/
+*.spec
