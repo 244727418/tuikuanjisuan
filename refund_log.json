@@ -1,0 +1,44 @@
+[
+  {
+    "reason": "轻度腐烂",
+    "amount": 19.9,
+    "ratio": 0.35,
+    "level": 99,
+    "disagree_count": 1
+  },
+  {
+    "reason": "中度腐烂",
+    "amount": 19.9,
+    "ratio": 0.65,
+    "level": 99,
+    "disagree_count": 1
+  },
+  {
+    "reason": "中度腐烂",
+    "amount": 19.9,
+    "ratio": 0.65,
+    "level": 99,
+    "disagree_count": 1
+  },
+  {
+    "reason": "重度腐烂",
+    "amount": 19.9,
+    "ratio": 1.0,
+    "level": 99,
+    "disagree_count": 1
+  },
+  {
+    "reason": "重度腐烂",
+    "amount": 19.9,
+    "ratio": 1.0,
+    "level": 99,
+    "disagree_count": 1
+  },
+  {
+    "reason": "重度发芽",
+    "amount": 19.9,
+    "ratio": 0.65,
+    "level": 99,
+    "disagree_count": 1
+  }
+]

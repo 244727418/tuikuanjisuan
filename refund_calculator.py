@@ -1,828 +1,849 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import math
+from tkinter import ttk, messagebox, simpledialog
 import json
 import os
-import threading
-import re
-import time
 
-import pystray
-from PIL import Image, ImageDraw
-import keyboard
+DEBUG_MODE = True
 
-CONFIG_FILE = "config.json"
+# ==================== 默认退款分类数据 ====================
+DEFAULT_CATEGORIES = [
+    {"name": "轻度腐烂", "desc": "表面小面积软点、水渍斑，削掉可食用", "ratio": 0.30, "scope": "单根局部软点", "group": "腐烂", "level": 1, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "中度腐烂", "desc": "局部腐烂面积＜1/3，轻微渗水或霉点", "ratio": 0.60, "scope": "单根腐烂小于1/3", "group": "腐烂", "level": 2, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "重度腐烂", "desc": "大面积腐烂、发黑发霉超过1/2", "ratio": 1.00, "scope": "单根腐烂超过一半", "group": "腐烂", "level": 3, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "轻度发芽", "desc": "芽长＜1cm，山药体未变软", "ratio": 0.10, "scope": "芽点刚萌动", "group": "发芽", "level": 1, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "中度发芽", "desc": "芽长1-3cm，根体开始变软", "ratio": 0.30, "scope": "芽长1到3厘米", "group": "发芽", "level": 2, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "重度发芽", "desc": "芽长＞3cm，根体明显干缩", "ratio": 0.60, "scope": "芽长超过3厘米", "group": "发芽", "level": 3, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "轻度断裂", "desc": "断成两截，断面整齐新鲜", "ratio": 0.20, "scope": "断裂1到2根", "group": "断裂", "level": 1, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "中度断裂", "desc": "断成两截以上，断面轻微氧化", "ratio": 0.40, "scope": "断裂2到3根", "group": "断裂", "level": 2, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+    {"name": "重度断裂", "desc": "断成多截、断面发黑", "ratio": 0.60, "scope": "断裂3根及以上", "group": "断裂", "level": 3, "final_increase": 5,
+     "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+     "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"},
+]
+
+DEFAULT_GROUPS = ["腐烂", "发芽", "断裂"]
+
+CONFIG_FILE = "refund_categories.json"
+LOG_FILE = "refund_log.json"
+GROUPS_FILE = "refund_groups.json"
 
 
-class ToastMessage:
-    """气泡提示类，支持淡入淡出效果"""
-    
-    def __init__(self, parent):
-        self.parent = parent
-        self.toast_window = None
-        self.alpha = 0.0
-        
-    def show(self, message="已复制", duration=1500):
-        """显示气泡提示"""
+# ==================== 数据管理 ====================
+def load_groups():
+    if os.path.exists(GROUPS_FILE):
         try:
-            # 如果已有提示窗口，先关闭
-            if self.toast_window:
-                self.hide()
-            
-            # 创建气泡窗口
-            self.toast_window = tk.Toplevel(self.parent)
-            self.toast_window.overrideredirect(True)
-            self.toast_window.configure(bg="#333333", highlightthickness=0)
-            self.toast_window.attributes("-alpha", 0.0)
-            self.toast_window.attributes("-topmost", True)
-            
-            # 设置窗口位置（在父窗口中央偏上）
-            self.parent.update()  # 确保窗口尺寸已更新
-            
-            parent_x = self.parent.winfo_rootx()
-            parent_y = self.parent.winfo_rooty()
-            parent_width = self.parent.winfo_width()
-            parent_height = self.parent.winfo_height()
-            
-            # 气泡尺寸
-            toast_width = 100
-            toast_height = 50
-            
-            # 计算位置（窗口中央偏上）
-            x = parent_x + (parent_width - toast_width) // 2
-            y = parent_y + (parent_height - toast_height) // 3  # 偏上位置
-            
-            self.toast_window.geometry(f"{toast_width}x{toast_height}+{x}+{y}")
-            
-            # 创建提示内容
-            label = tk.Label(self.toast_window, text=message, 
-                           bg="#333333", fg="white", font=("Arial", 14, "bold"),
-                           padx=10, pady=5)
-            label.pack(expand=True, fill="both")
-            
-            # 开始淡入动画
-            self.fade_in()
-            
-            # 设置自动关闭
-            self.toast_window.after(duration, self.fade_out)
-            
-        except Exception as e:
-            print(f"显示气泡提示失败: {e}")
-    
-    def fade_in(self):
-        """淡入动画"""
-        try:
-            if self.toast_window and self.alpha < 1.0:
-                self.alpha += 0.1
-                self.toast_window.attributes("-alpha", self.alpha)
-                self.toast_window.after(30, self.fade_in)
-        except Exception as e:
-            print(f"淡入动画失败: {e}")
-    
-    def fade_out(self):
-        """淡出动画"""
-        try:
-            if self.toast_window and self.alpha > 0.0:
-                self.alpha -= 0.1
-                self.toast_window.attributes("-alpha", self.alpha)
-                self.toast_window.after(30, self.fade_out)
-            else:
-                self.hide()
-        except Exception as e:
-            print(f"淡出动画失败: {e}")
-    
-    def hide(self):
-        """隐藏气泡提示"""
-        try:
-            if self.toast_window:
-                self.toast_window.destroy()
-                self.toast_window = None
-                self.alpha = 0.0
-        except Exception as e:
-            print(f"隐藏气泡提示失败: {e}")
-
-
-class RefundCalculator:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.geometry("750x600")  # 增大窗口尺寸以适应更多内容
-        self.root.title("退款计算器")  # 设置窗口标题
-        self.root.configure(bg="#f4f6f8")
-        
-        self.is_topmost = False
-
-        # 创建气泡提示
-        self.toast = ToastMessage(self.root)
-
-        # 加载配置
-        self.load_config()
-
-        # 创建界面
-        self.create_ui()
-        self.create_tray()
-        self.register_hotkey()
-
-        # 绑定窗口事件
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
-
-    def toggle_top(self):
-        """切换窗口置顶状态"""
-        try:
-            self.is_topmost = not self.is_topmost
-            self.root.attributes("-topmost", self.is_topmost)
-        except Exception as e:
-            print(f"切换置顶状态失败: {e}")
-
-    def minimize(self):
-        """最小化窗口到任务栏"""
-        try:
-            # 使用iconify()方法最小化到任务栏
-            self.root.iconify()
-        except Exception as e:
-            print(f"最小化失败: {e}")
-            # 如果iconify失败，尝试其他方法
-            try:
-                # 尝试设置窗口状态为最小化
-                self.root.state('iconic')
-            except:
-                # 最后尝试隐藏窗口
-                self.root.withdraw()
-
-    def hide_window(self):
-        """隐藏窗口到托盘"""
-        try:
-            self.root.withdraw()
-        except Exception as e:
-            print(f"隐藏窗口失败: {e}")
-
-    def quit_app(self):
-        """退出应用程序"""
-        try:
-            if hasattr(self, 'tray'):
-                self.tray.stop()
-            keyboard.unhook_all()
-            self.root.destroy()
-        except Exception as e:
-            print(f"退出应用失败: {e}")
-
-    # ---------------- 用户界面 ----------------
-    def create_ui(self):
-        """创建主界面"""
-        try:
-            # 顶部区域 - 实付金额
-            top_frame = tk.Frame(self.root, bg="white", padx=15, pady=10)
-            top_frame.pack(fill="x", padx=10, pady=10)
-
-            tk.Label(top_frame, text="实付金额（元）", bg="white", 
-                    font=("Arial", 12)).pack(anchor="w")
-            
-            self.amount_var = tk.StringVar()
-            amount_entry = tk.Entry(top_frame, textvariable=self.amount_var, 
-                                   font=("Arial", 12))
-            amount_entry.pack(fill="x", pady=5)
-            amount_entry.bind("<FocusIn>", lambda e: e.widget.select_range(0, tk.END))
-            amount_entry.bind("<KeyRelease>", lambda e: self.schedule_update())
-
-            # 金额验证标签
-            self.amount_warning = tk.Label(top_frame, text="", fg="red", 
-                                          bg="white", font=("Arial", 10))
-            self.amount_warning.pack(anchor="w")
-
-            # 标签页区域
-            self.tabs = ttk.Notebook(self.root)
-            self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
-
-            # 创建三个标签页
-            self.create_weight_tab()
-            self.create_rotten_tab()
-            self.create_ratio_tab()
-
-            # 绑定标签页切换事件
-            self.tabs.bind("<<NotebookTabChanged>>", lambda e: self.schedule_update())
-
-            # 底部区域 - 结果和话术
-            self.create_bottom_section()
-            
-        except Exception as e:
-            print(f"创建界面失败: {e}")
-
-    def create_weight_tab(self):
-        """创建少重赔付标签页"""
-        try:
-            tab = tk.Frame(self.tabs, padx=10, pady=10)
-            self.tabs.add(tab, text="少重赔付")
-
-            # 购买规格选择
-            spec_frame = tk.Frame(tab)
-            spec_frame.pack(fill="x", pady=5)
-            
-            tk.Label(spec_frame, text="购买规格：", font=("Arial", 12)).pack(side="left")
-            
-            self.spec_var = tk.StringVar(value="5斤")
-            spec_combo = ttk.Combobox(spec_frame, textvariable=self.spec_var,
-                                     values=["3斤", "5斤", "7斤", "10斤"], 
-                                     state="readonly", font=("Arial", 12))
-            spec_combo.pack(side="left", padx=10)
-            spec_combo.bind("<<ComboboxSelected>>", lambda e: self.schedule_update())
-
-            # 收到重量输入
-            weight_frame = tk.Frame(tab)
-            weight_frame.pack(fill="x", pady=5)
-            
-            tk.Label(weight_frame, text="收到重量：", font=("Arial", 12)).pack(side="left")
-            
-            self.weight_var = tk.StringVar()
-            weight_entry = tk.Entry(weight_frame, textvariable=self.weight_var, 
-                                  font=("Arial", 12))
-            weight_entry.pack(side="left", padx=10, fill="x", expand=True)
-            weight_entry.bind("<FocusIn>", lambda e: e.widget.select_range(0, tk.END))
-            
-            # 单位识别结果显示
-            self.unit_recognition_label = tk.Label(weight_frame, text="", 
-                                                  fg="blue", font=("Arial", 10))
-            self.unit_recognition_label.pack(side="left", padx=10)
-
-            # 绑定重量变化事件
-            self.weight_var.trace("w", lambda *a: self.schedule_update())
-            
-        except Exception as e:
-            print(f"创建少重标签页失败: {e}")
-
-    def create_rotten_tab(self):
-        """创建腐烂/变质标签页"""
-        try:
-            tab = tk.Frame(self.tabs, padx=10, pady=10)
-            self.tabs.add(tab, text="腐烂/变质")
-
-            # 总根数输入
-            total_frame = tk.Frame(tab)
-            total_frame.pack(fill="x", pady=5)
-            
-            tk.Label(total_frame, text="总根数：", font=("Arial", 12)).pack(side="left")
-            
-            self.total_roots_var = tk.StringVar()
-            total_entry = tk.Entry(total_frame, textvariable=self.total_roots_var, 
-                                  font=("Arial", 12))
-            total_entry.pack(side="left", padx=10, fill="x", expand=True)
-            total_entry.bind("<FocusIn>", lambda e: e.widget.select_range(0, tk.END))
-
-            # 坏根数输入
-            bad_frame = tk.Frame(tab)
-            bad_frame.pack(fill="x", pady=5)
-            
-            tk.Label(bad_frame, text="坏根数：", font=("Arial", 12)).pack(side="left")
-            
-            self.bad_roots_var = tk.StringVar()
-            bad_entry = tk.Entry(bad_frame, textvariable=self.bad_roots_var, 
-                               font=("Arial", 12))
-            bad_entry.pack(side="left", padx=10, fill="x", expand=True)
-            bad_entry.bind("<FocusIn>", lambda e: e.widget.select_range(0, tk.END))
-
-            # 绑定根数变化事件
-            self.total_roots_var.trace("w", lambda *a: self.schedule_update())
-            self.bad_roots_var.trace("w", lambda *a: self.schedule_update())
-            
-        except Exception as e:
-            print(f"创建腐烂标签页失败: {e}")
-
-    def create_ratio_tab(self):
-        """创建比例赔付标签页"""
-        try:
-            tab = tk.Frame(self.tabs, padx=10, pady=10)
-            self.tabs.add(tab, text="比例赔付")
-
-            # 损坏比例输入
-            ratio_frame = tk.Frame(tab)
-            ratio_frame.pack(fill="x", pady=5)
-            
-            tk.Label(ratio_frame, text="损坏比例：", font=("Arial", 12)).pack(side="left")
-            
-            self.damage_ratio_var = tk.StringVar()
-            ratio_entry = tk.Entry(ratio_frame, textvariable=self.damage_ratio_var, 
-                                 font=("Arial", 12))
-            ratio_entry.pack(side="left", padx=10, fill="x", expand=True)
-            ratio_entry.bind("<FocusIn>", lambda e: e.widget.select_range(0, tk.END))
-            
-            tk.Label(ratio_frame, text="%（1-100之间的数字）", 
-                    font=("Arial", 10)).pack(side="left", padx=10)
-
-            # 绑定比例变化事件
-            self.damage_ratio_var.trace("w", lambda *a: self.schedule_update())
-            
-        except Exception as e:
-            print(f"创建比例标签页失败: {e}")
-
-    def create_bottom_section(self):
-        """创建底部结果和话术区域"""
-        try:
-            bottom_frame = tk.Frame(self.root, bg="white", padx=15, pady=10)
-            bottom_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-            # 结果显示
-            self.result_var = tk.StringVar(value="-")
-            result_label = tk.Label(bottom_frame, textvariable=self.result_var, 
-                                   fg="#27ae60", bg="white", font=("Arial", 12, "bold"))
-            result_label.pack(anchor="w", pady=(0, 10))
-
-            # 话术区域
-            tk.Label(bottom_frame, text="话术（点击自动复制）", bg="white", 
-                    font=("Arial", 12)).pack(anchor="w")
-            
-            # 话术文本框和滚动条
-            text_frame = tk.Frame(bottom_frame)
-            text_frame.pack(fill="both", expand=True, pady=5)
-            
-            self.speech_text = tk.Text(text_frame, height=6, wrap=tk.WORD, 
-                                      font=("Arial", 11))
-            
-            # 添加滚动条
-            scrollbar = tk.Scrollbar(text_frame, orient="vertical", 
-                                   command=self.speech_text.yview)
-            self.speech_text.configure(yscrollcommand=scrollbar.set)
-            
-            self.speech_text.pack(side="left", fill="both", expand=True)
-            scrollbar.pack(side="right", fill="y")
-            
-            # 绑定点击复制事件
-            self.speech_text.bind("<Button-1>", self.copy_speech)
-
-            # 按钮区域
-            button_frame = tk.Frame(bottom_frame)
-            button_frame.pack(fill="x", pady=10)
-            
-            # 设置按钮
-            tk.Button(button_frame, text="设置", command=self.open_settings, 
-                     font=("Arial", 10), width=10).pack(side="right", padx=5)
-            
-        except Exception as e:
-            print(f"创建底部区域失败: {e}")
-
-    # ---------------- 工具函数 ----------------
-    def ceil_half(self, value):
-        """向上取0.5"""
-        try:
-            return math.ceil(value * 2) / 2
+            with open(GROUPS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
         except:
-            return 0.0
+            pass
+    return list(DEFAULT_GROUPS)
 
-    def parse_weight(self, text, spec_weight):
-        """解析重量输入，支持智能单位识别"""
-        try:
-            # 提取数字
-            numbers = re.findall(r"\d+\.?\d*", text)
-            if not numbers:
-                return 0, ""
-                
-            num = float(numbers[0])
-            original_text = text.strip()
-            
-            # 单位识别
-            if "kg" in text.lower() or "公斤" in text:
-                weight_g = num * 1000
-                unit = "公斤"
-            elif "斤" in text:
-                weight_g = num * 500
-                unit = "斤"
-            elif "g" in text.lower():
-                weight_g = num
-                unit = "克"
-            else:
-                # 智能识别：尝试不同单位，选择最接近规格的
-                options = [
-                    (num, "克"),
-                    (num * 500, "斤"), 
-                    (num * 1000, "公斤")
-                ]
-                # 选择与规格重量最接近的单位
-                best_match = min(options, key=lambda x: abs(x[0] - spec_weight))
-                weight_g, unit = best_match
-            
-            return weight_g, unit
-            
-        except Exception as e:
-            print(f"解析重量失败: {e}")
-            return 0, ""
 
-    def validate_input(self, value, input_type="number"):
-        """输入验证"""
+def save_groups(groups):
+    with open(GROUPS_FILE, "w", encoding="utf-8") as f:
+        json.dump(groups, f, ensure_ascii=False, indent=2)
+
+
+def load_categories():
+    if os.path.exists(CONFIG_FILE):
         try:
-            if not value.strip():
-                return False, "输入不能为空"
-                
-            if input_type == "number":
-                num = float(value)
-                if num <= 0:
-                    return False, "请输入大于0的数字"
-                return True, ""
-                    
-            elif input_type == "integer":
-                if not value.isdigit():
-                    return False, "请输入整数"
-                num = int(value)
-                if num <= 0:
-                    return False, "请输入大于0的整数"
-                return True, ""
-                    
-            elif input_type == "percentage":
-                num = float(value)
-                if num <= 0 or num > 100:
-                    return False, "请输入1-100之间的数字"
-                return True, ""
-                    
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    # 默认数据深拷贝
+    return [dict(c) for c in DEFAULT_CATEGORIES]
+
+
+def save_categories(categories):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(categories, f, ensure_ascii=False, indent=2)
+
+
+def load_log():
+    if os.path.exists(LOG_FILE):
+        try:
+            with open(LOG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+
+def save_log(logs):
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=2)
+
+
+def add_log_entry(reason_name, amount, ratio, level):
+    logs = load_log()
+    logs.append({
+        "reason": reason_name,
+        "amount": amount,
+        "ratio": ratio,
+        "level": level,
+        "disagree_count": 1
+    })
+    save_log(logs)
+
+
+def render_template(template, **kwargs):
+    for key, value in kwargs.items():
+        template = template.replace(f"{{{key}}}", str(value))
+    return template
+
+
+# ==================== 主应用类 ====================
+class RefundApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("生鲜山药售后 · 话术生成器")
+        self.root.geometry("900x680")
+        self.root.minsize(800, 600)
+
+        self.categories = load_categories()
+        self.groups = load_groups()
+        self.bubble_buttons = []
+        self.amount_var = tk.StringVar()
+        self.history_text = None
+        self.current_category = None
+        self.current_ratio = 0
+        self.current_level = 0
+
+        self.build_ui()
+        self.refresh_bubbles()
+        self.root.update_idletasks()
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = 900
+        window_height = 680
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    # ---------- 主界面 ----------
+    def build_ui(self):
+        # 顶部说明
+        top_frame = ttk.Frame(self.root, padding=10)
+        top_frame.pack(fill=tk.X)
+        ttk.Label(top_frame, text="🛠️ 山药售后问题快速话术生成", font=("微软雅黑", 14, "bold")).pack(anchor=tk.W)
+        ttk.Label(top_frame, text="鼠标悬停气泡查看退款范畴 · 点击气泡自动生成话术", foreground="gray").pack(anchor=tk.W)
+
+        # 中间：气泡容器 + 右侧设置按钮
+        middle_frame = ttk.Frame(self.root)
+        middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # 左侧气泡区域（带滚动条）
+        left_frame = ttk.LabelFrame(middle_frame, text="退款原因分类", padding=8)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(left_frame, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=canvas.yview)
+        self.bubble_canvas = canvas
+        self.bubble_frame = ttk.Frame(canvas)
+
+        self.bubble_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self.bubble_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 右侧设置面板
+        right_frame = ttk.Frame(middle_frame, width=160)
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
+        right_frame.pack_propagate(False)
+
+        ttk.Button(right_frame, text="⚙️ 设置管理", command=self.open_settings).pack(fill=tk.X, pady=7, ipadx=1)
+        ttk.Button(right_frame, text="🏷️ 分类管理", command=self.open_group_manager).pack(fill=tk.X, pady=7, ipadx=1)
+        ttk.Separator(right_frame).pack(fill=tk.X, pady=6)
+
+        ttk.Label(right_frame, text="实付金额 (元)：").pack(anchor=tk.W)
+        self.amount_entry = ttk.Entry(right_frame, textvariable=self.amount_var, font=("微软雅黑", 11))
+        self.amount_entry.pack(fill=tk.X, pady=2)
+        self.amount_entry.bind("<FocusIn>", lambda e: self.amount_entry.select_range(0, tk.END))
+
+        ttk.Separator(right_frame).pack(fill=tk.X, pady=8)
+
+        ttk.Label(right_frame, text="生成话术预览：").pack(anchor=tk.W)
+        self.history_text = tk.Text(right_frame, height=14, width=28, font=("微软雅黑", 9), wrap=tk.WORD,
+                                    relief=tk.SUNKEN, borderwidth=1)
+        self.history_text.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.disagree_btn = ttk.Button(right_frame, text="顾客不同意 → 升级方案", command=self.on_disagree)
+        self.disagree_btn.pack(fill=tk.X, pady=4)
+
+        # 底部状态栏
+        self.status_var = tk.StringVar(value="就绪")
+        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=3)
+        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    # ---------- 刷新气泡按钮 ----------
+    def refresh_bubbles(self):
+        for btn in self.bubble_buttons:
+            btn.destroy()
+        self.bubble_buttons.clear()
+
+        for widget in self.bubble_frame.winfo_children():
+            widget.destroy()
+
+        row = 0
+        for group_name in self.groups:
+            group_cats = [c for c in self.categories if c.get("group", "") == group_name]
+            group_cats.sort(key=lambda x: x.get("level", 0))
+
+            for i, cat in enumerate(group_cats):
+                name = cat["name"]
+                desc = cat["desc"]
+                ratio = cat.get("ratio", 0)
+
+                tooltip_text = f"{name}\n参考比例：{int(ratio*100)}%"
+
+                btn = ttk.Button(self.bubble_frame, text=name, width=14,
+                                 command=lambda c=cat: self.on_bubble_click(c))
+                btn.grid(row=row, column=i % 3, padx=4, pady=3, sticky="ew")
+                self.bubble_buttons.append(btn)
+                self.create_tooltip(btn, tooltip_text)
+
+            if group_cats:
+                row += 1
+
+        self.bubble_frame.update_idletasks()
+        self.bubble_canvas.configure(scrollregion=self.bubble_canvas.bbox("all"))
+
+    def create_tooltip(self, widget, text):
+        """简陋但可用的悬停提示"""
+        tooltip = None
+
+        def on_enter(event):
+            nonlocal tooltip
+            x = widget.winfo_rootx() + widget.winfo_width() // 2
+            y = widget.winfo_rooty() + widget.winfo_height() + 4
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            label = ttk.Label(tooltip, text=text, background="#ffffcc", relief=tk.SOLID, borderwidth=1,
+                              font=("微软雅黑", 9), padding=6, wraplength=220)
+            label.pack()
+
+        def on_leave(event):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+
+    # ---------- 气泡点击事件 ----------
+    def on_bubble_click(self, category):
+        try:
+            amount = float(self.amount_var.get())
         except ValueError:
-            return False, "请输入有效的数字"
-        except Exception as e:
-            return False, f"输入验证失败: {e}"
+            messagebox.showwarning("输入错误", "请输入有效的实付金额（数字）")
+            return
 
-    # ---------------- 核心计算逻辑 ----------------
-    def schedule_update(self):
-        """调度更新，添加延迟避免频繁计算"""
-        if hasattr(self, '_update_job'):
-            self.root.after_cancel(self._update_job)
-        self._update_job = self.root.after(300, self.update_all)  # 300ms延迟
+        name = category["name"]
+        ratio = category.get("ratio", 0)
+        scope = category.get("scope", "")
+        group = category.get("group", "")
+        level = category.get("level", 1)
 
-    def update_all(self):
-        """更新所有计算结果"""
-        try:
-            # 验证实付金额
-            amount_text = self.amount_var.get().strip()
-            if not amount_text:
-                self.result_var.set("-")
-                self.speech_text.delete("1.0", tk.END)
-                self.amount_warning.config(text="")
-                return
-                
-            is_valid, message = self.validate_input(amount_text, "number")
-            if not is_valid:
-                self.amount_warning.config(text=message)
-                self.result_var.set("-")
-                self.speech_text.delete("1.0", tk.END)
-                return
-            else:
-                self.amount_warning.config(text="")
-            
-            amount = float(amount_text)
-            
-            # 获取当前标签页
-            current_tab = self.tabs.index(self.tabs.select())
-            
-            if current_tab == 0:  # 少重赔付
-                self.calculate_weight_refund(amount)
-            elif current_tab == 1:  # 腐烂/变质
-                self.calculate_rotten_refund(amount)
-            else:  # 比例赔付
-                self.calculate_ratio_refund(amount)
-                
-        except Exception as e:
-            print(f"更新计算失败: {e}")
-            self.result_var.set("计算错误")
-            self.speech_text.delete("1.0", tk.END)
-            self.speech_text.insert("1.0", "计算过程中出现错误，请检查输入数据。")
+        self.current_category = category
+        self.current_ratio = ratio
+        self.current_level = level
+        self.current_amount = amount
 
-    def calculate_weight_refund(self, amount):
-        """计算少重赔付"""
-        try:
-            # 规格映射
-            spec_map = {"3斤": 1500, "5斤": 2500, "7斤": 3500, "10斤": 5000}
-            spec_text = self.spec_var.get()
-            spec_weight = spec_map.get(spec_text, 2500)
-            
-            # 解析收到重量
-            weight_text = self.weight_var.get().strip()
-            if not weight_text:
-                self.result_var.set("-")
-                self.speech_text.delete("1.0", tk.END)
-                self.unit_recognition_label.config(text="")
-                return
-            
-            received_weight, unit = self.parse_weight(weight_text, spec_weight)
-            
-            # 更新单位识别显示
-            if unit:
-                self.unit_recognition_label.config(text=f"识别为: {weight_text} → {received_weight}克")
-            else:
-                self.unit_recognition_label.config(text="")
-            
-            # 计算缺失重量
-            missing_weight = spec_weight - received_weight
-            
-            # 判断是否在误差范围内
-            if missing_weight <= 50:
-                speech = """亲，这边跟您说明一下哈～
+        refund_money = round(amount * ratio, 2)
+        template = category.get("template", "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？")
+        script = render_template(template, name=name, desc=desc, ratio=int(ratio*100), money=refund_money, final_ratio=int(ratio*100))
 
-我们发货都是按【净重（可食用部分）】严格称重打包的，保证您收到的都是能吃的部分。
+        self.history_text.delete("1.0", tk.END)
+        self.history_text.insert(tk.END, script)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(script)
+        self.status_var.set(f"已生成【{name}】话术，赔付 {refund_money} 元（已自动复制）")
 
-不过山药属于生鲜产品，在运输过程中会有轻微自然失水，一般在几十克左右（差不多一个山药头的重量），这个属于正常范围内的误差哦～
+    def on_disagree(self):
+        if not self.current_category:
+            messagebox.showinfo("提示", "请先点击气泡生成话术")
+            return
 
-实际您收到的整体是达标的，可以放心食用哈～我们这边也是一直按足斤足两标准发货的 🙏"""
-                self.result_var.set("正常误差范围内（无需赔付）")
-                self.set_speech(speech)
-                return
-            
-            # 计算赔付金额
-            refund_amount = (missing_weight / spec_weight) * amount
-            final_amount = self.ceil_half(refund_amount)
-            
-            speech = f"""亲，这边已经帮您核算过了～
+        name = self.current_category["name"]
+        group = self.current_category.get("group", "")
+        current_level = self.current_level
+        final_increase = self.current_category.get("final_increase", 5)
+        amount = self.current_amount
 
-您反馈的重量情况确实存在偏差，我们这边是按比例给您做补偿的：
+        same_group_cats = [c for c in self.categories if c.get("group", "") == group]
+        same_group_cats.sort(key=lambda x: x.get("level", 0))
 
-应赔金额是：{refund_amount:.2f}元  
-我们统一是按平台规则【向上取0.5】进行处理，最终为您申请：{final_amount:.2f}元
+        next_cat = None
+        is_final = False
 
-这边已经帮您申请好了，请您放心查收～
+        for cat in same_group_cats:
+            if cat.get("level", 0) > current_level:
+                next_cat = cat
+                break
 
-也感谢您的理解，我们后续也会继续优化包装，尽量减少运输损耗 🙏"""
-            
-            self.result_var.set(f"应赔 {refund_amount:.2f} → 实赔 {final_amount:.2f}")
-            self.set_speech(speech)
-            
-        except Exception as e:
-            print(f"少重赔付计算失败: {e}")
+        if next_cat is None:
+            current_ratio = self.current_ratio
+            final_ratio = min(current_ratio + final_increase / 100, 1.0)
+            is_final = True
+        else:
+            final_ratio = next_cat.get("ratio", self.current_ratio)
+            next_cat = cat
 
-    def calculate_rotten_refund(self, amount):
-        """计算腐烂/变质赔付"""
-        try:
-            # 验证输入
-            total_text = self.total_roots_var.get().strip()
-            bad_text = self.bad_roots_var.get().strip()
-            
-            if not total_text or not bad_text:
-                self.result_var.set("-")
-                self.speech_text.delete("1.0", tk.END)
-                return
-            
-            is_valid_total, msg_total = self.validate_input(total_text, "integer")
-            is_valid_bad, msg_bad = self.validate_input(bad_text, "integer")
-            
-            if not is_valid_total or not is_valid_bad:
-                self.result_var.set("输入错误")
-                self.speech_text.delete("1.0", tk.END)
-                self.speech_text.insert("1.0", f"请检查输入: {msg_total if not is_valid_total else msg_bad}")
-                return
-            
-            total_roots = int(total_text)
-            bad_roots = int(bad_text)
-            
-            if bad_roots > total_roots:
-                self.result_var.set("输入错误")
-                self.speech_text.delete("1.0", tk.END)
-                self.speech_text.insert("1.0", "坏根数不能大于总根数")
-                return
-            
-            # 计算赔付比例和金额
-            ratio = bad_roots / total_roots
-            refund_amount = amount * ratio
-            final_amount = self.ceil_half(refund_amount)
-            
-            speech = f"""亲，这边跟您说明一下我们的售后标准哈～
+        refund_money = round(amount * final_ratio, 2)
 
-生鲜类商品主要是按【是否影响食用】来判定的：
+        if is_final:
+            template_upgrade = self.current_category.get("template_upgrade", "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？")
+            script = render_template(template_upgrade, name=name, desc=self.current_category.get("desc", ""),
+                                     ratio=int(self.current_ratio*100), money=refund_money, final_ratio=int(final_ratio*100))
+        else:
+            template = next_cat.get("template", "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？")
+            desc = next_cat.get("desc", "")
+            script = render_template(template, name=next_cat["name"], desc=desc, ratio=int(final_ratio*100), money=refund_money, final_ratio=int(final_ratio*100))
+            self.current_category = next_cat
 
-👉 如果是表皮磕碰、轻微损伤  
-这种不影响内部品质，削皮后是可以正常食用的，不属于质量问题范围哦～
+        self.current_ratio = final_ratio
+        self.current_level = current_level + 1 if not is_final else 99
 
-👉 如果出现内部发黑、腐烂、异味等情况  
-这种是可以给您做售后的 👍
+        add_log_entry(name, amount, self.current_ratio, self.current_level)
 
-根据您反馈情况，这边核算：
+        self.history_text.delete("1.0", tk.END)
+        self.history_text.insert(tk.END, script)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(script)
+        self.status_var.set(f"已升级方案，【{name}】赔付 {refund_money} 元（已自动复制）")
 
-腐烂比例：{ratio:.0%}  
-应赔金额：{refund_amount:.2f}元  
-最终补偿：{final_amount:.2f}元
-
-如果方便的话，可以拍一下切开后的内部情况，我们可以帮您进一步确认处理～"""
-            
-            self.result_var.set(f"{ratio:.0%} → {final_amount:.2f}")
-            self.set_speech(speech)
-            
-        except Exception as e:
-            print(f"腐烂赔付计算失败: {e}")
-
-    def calculate_ratio_refund(self, amount):
-        """计算比例赔付"""
-        try:
-            # 验证输入
-            ratio_text = self.damage_ratio_var.get().strip()
-            if not ratio_text:
-                self.result_var.set("-")
-                self.speech_text.delete("1.0", tk.END)
-                return
-            
-            is_valid, message = self.validate_input(ratio_text, "percentage")
-            if not is_valid:
-                self.result_var.set("输入错误")
-                self.speech_text.delete("1.0", tk.END)
-                self.speech_text.insert("1.0", message)
-                return
-            
-            ratio = float(ratio_text) / 100
-            refund_amount = amount * ratio
-            final_amount = self.ceil_half(refund_amount)
-            
-            speech = f"""亲，实在不好意思给您带来不好的体验了 🙏
-
-根据您反馈的情况，这边已经帮您按比例核算：
-
-赔付比例：{ratio:.0%}  
-应赔金额：{refund_amount:.2f}元  
-最终为您申请：{final_amount:.2f}元（按平台规则向上取整）
-
-这边已经为您处理完成，您注意查收一下～
-
-我们后续也会继续优化发货品质，争取给您更好的体验 🌿"""
-            
-            self.result_var.set(f"{final_amount:.2f}")
-            self.set_speech(speech)
-            
-        except Exception as e:
-            print(f"比例赔付计算失败: {e}")
-
-    def set_speech(self, text):
-        """设置话术内容"""
-        try:
-            self.speech_text.delete("1.0", tk.END)
-            self.speech_text.insert("1.0", text)
-        except Exception as e:
-            print(f"设置话术失败: {e}")
-
-    def copy_speech(self, event):
-        """复制话术到剪贴板"""
-        try:
-            text = self.speech_text.get("1.0", tk.END).strip()
-            if text:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(text)
-                # 使用气泡提示替代弹窗
-                self.toast.show("已复制")
-        except Exception as e:
-            print(f"复制话术失败: {e}")
-            # 复制失败时也使用气泡提示
-            self.toast.show("复制失败")
-
-    # ---------------- 设置功能 ----------------
+    # ---------- 设置窗口 ----------
     def open_settings(self):
-        """打开设置窗口"""
-        try:
-            settings_window = tk.Toplevel(self.root)
-            settings_window.title("设置")
-            settings_window.geometry("300x200")
-            settings_window.resizable(False, False)
-            
-            # 置顶窗口
-            settings_window.transient(self.root)
-            settings_window.grab_set()
-            
-            # 快捷键设置
-            tk.Label(settings_window, text="全局快捷键", 
-                    font=("Arial", 12, "bold")).pack(pady=10)
-            
-            hotkey_frame = tk.Frame(settings_window)
-            hotkey_frame.pack(pady=10)
-            
-            hotkey_var = tk.StringVar(value=self.config.get("hotkey", "ctrl+shift+r"))
-            hotkey_entry = tk.Entry(hotkey_frame, textvariable=hotkey_var, 
-                                   font=("Arial", 11), width=20)
-            hotkey_entry.pack(pady=5)
-            
-            tk.Label(hotkey_frame, text="格式如: ctrl+shift+r", 
-                    font=("Arial", 9), fg="gray").pack()
-            
-            def save_settings():
-                try:
-                    # 卸载旧热键
-                    keyboard.unhook_all()
-                    
-                    # 保存新配置
-                    self.config["hotkey"] = hotkey_var.get()
-                    self.save_config()
-                    
-                    # 注册新热键
-                    self.register_hotkey()
-                    
-                    messagebox.showinfo("提示", "设置已保存并生效")
-                    settings_window.destroy()
-                    
-                except Exception as e:
-                    print(f"保存设置失败: {e}")
-                    messagebox.showerror("错误", "保存失败，请检查快捷键格式")
-            
-            # 保存按钮
-            tk.Button(settings_window, text="保存", command=save_settings,
-                     font=("Arial", 11), width=10).pack(pady=10)
-            
-        except Exception as e:
-            print(f"打开设置窗口失败: {e}")
+        SettingsDialog(self.root, self.categories, self.groups, self.on_categories_updated)
 
-    # ---------------- 托盘功能 ----------------
-    def create_tray(self):
-        """创建系统托盘图标"""
-        try:
-            # 创建托盘图标
-            image = Image.new("RGB", (64, 64), "#27ae60")
-            draw = ImageDraw.Draw(image)
-            draw.text((22, 20), "￥", fill="white", font_size=20)
-            
-            # 创建菜单
-            menu = pystray.Menu(
-                pystray.MenuItem("显示", self.show_from_tray),
-                pystray.MenuItem("退出", self.quit_app)
-            )
-            
-            # 创建托盘图标
-            self.tray = pystray.Icon("refund_calculator", image, "退款计算器", menu)
-            
-            # 在后台线程中运行托盘
-            threading.Thread(target=self.tray.run, daemon=True).start()
-            
-        except Exception as e:
-            print(f"创建托盘失败: {e}")
-    
-    def show_from_tray(self):
-        """从系统托盘显示窗口，确保显示在最上方"""
-        try:
-            # 显示窗口
-            self.root.deiconify()
-            
-            # 确保窗口显示在最前方
-            self.root.lift()
-            self.root.focus_force()
-            
-            # 临时置顶，确保不会被其他窗口遮挡
-            self.root.attributes('-topmost', True)
-            
-            # 短暂延迟后取消置顶（如果用户没有手动设置置顶）
-            def reset_topmost():
-                if not self.is_topmost:
-                    self.root.attributes('-topmost', False)
-            
-            self.root.after(100, reset_topmost)  # 100ms后重置置顶状态
-            
-            # 激活窗口并获取焦点
-            self.root.update()
-            
-        except Exception as e:
-            print(f"从托盘显示窗口失败: {e}")
+    def open_group_manager(self):
+        GroupManagerDialog(self.root, self.on_groups_updated)
 
-    # ---------------- 热键功能 ----------------
-    def register_hotkey(self):
-        """注册全局热键"""
-        try:
-            hotkey = self.config.get("hotkey", "ctrl+shift+r")
-            keyboard.add_hotkey(hotkey, self.toggle_window)
-        except Exception as e:
-            print(f"注册热键失败: {e}")
+    def on_groups_updated(self, new_groups):
+        self.groups = new_groups
+        save_groups(self.groups)
+        self.refresh_bubbles()
+        self.status_var.set("退款分类已更新")
 
-    def toggle_window(self):
-        """切换窗口显示/隐藏"""
-        try:
-            if self.root.state() == "withdrawn":
-                # 使用与系统托盘相同的显示逻辑
-                self.show_from_tray()
-            else:
-                self.root.withdraw()
-        except Exception as e:
-            print(f"切换窗口失败: {e}")
-
-    # ---------------- 配置管理 ----------------
-    def load_config(self):
-        """加载配置文件"""
-        try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    self.config = json.load(f)
-            else:
-                self.config = {"hotkey": "ctrl+shift+r"}
-        except Exception as e:
-            print(f"加载配置失败: {e}")
-            self.config = {"hotkey": "ctrl+shift+r"}
-
-    def save_config(self):
-        """保存配置文件"""
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"保存配置失败: {e}")
-
-    # ---------------- 应用程序运行 ----------------
-    def run(self):
-        """运行应用程序"""
-        try:
-            self.root.mainloop()
-        except Exception as e:
-            print(f"应用程序运行失败: {e}")
+    def on_categories_updated(self, new_categories):
+        self.categories = new_categories
+        save_categories(self.categories)
+        self.refresh_bubbles()
+        self.status_var.set("退款分类已更新")
 
 
+# ==================== 设置对话框 ====================
+class SettingsDialog(tk.Toplevel):
+    def __init__(self, parent, categories, groups, callback):
+        super().__init__(parent)
+        self.title("退款方案管理 · 编辑/添加/删除")
+        self.geometry("1100x650")
+        self.minsize(900, 550)
+
+        self.categories = [dict(c) for c in categories]
+        self.groups = list(groups)
+        self.callback = callback
+        self.tree = None
+        self.detail_frame = None
+        self.entry_vars = {}
+
+        self.withdraw()
+        self.fix_duplicate_levels()
+        self.build_tree()
+        self.build_detail_panel()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.update_idletasks()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        window_width = 1100
+        window_height = 650
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.deiconify()
+
+    def fix_duplicate_levels(self):
+        KEYWORD_ORDER = {"轻": 1, "中": 2, "重": 3, "轻": 1, "中": 2, "重": 3}
+
+        for group in self.groups:
+            cats_in_group = [c for c in self.categories if c.get("group", "") == group]
+            cats_in_group.sort(key=lambda c: KEYWORD_ORDER.get(c.get("name", "")[0], 99) if c.get("name", "") else 99)
+
+            for idx, cat in enumerate(cats_in_group):
+                cat["level"] = idx + 1
+
+        if hasattr(self, "callback"):
+            self.callback(self.categories)
+
+    def build_tree(self):
+        frame = ttk.LabelFrame(self, text="现有分类列表", padding=8)
+        frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        columns = ("name", "ratio", "level")
+        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        self.tree.heading("name", text="退款原因")
+        self.tree.heading("ratio", text="赔付比例(%)")
+        self.tree.heading("level", text="等级")
+        self.tree.column("name", width=120)
+        self.tree.column("ratio", width=80)
+        self.tree.column("level", width=50)
+
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.refresh_tree()
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=4)
+        ttk.Button(btn_frame, text="➕ 新增方案", command=self.add_category).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="🗑️ 删除选中", command=self.delete_category).pack(side=tk.RIGHT, padx=3)
+
+    def build_detail_panel(self):
+        panel = ttk.LabelFrame(self, text="编辑选中分类详情", padding=12)
+        panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=8, pady=8, expand=False)
+
+        self.entry_vars["name"] = tk.StringVar()
+        self.entry_vars["ratio"] = tk.StringVar()
+        self.entry_vars["desc"] = tk.StringVar()
+        self.entry_vars["group"] = tk.StringVar()
+        self.entry_vars["level"] = tk.StringVar()
+        self.entry_vars["final_increase"] = tk.StringVar()
+
+        self.status_label = ttk.Label(panel, text="", foreground="green", font=("微软雅黑", 9))
+
+        ttk.Label(panel, text="退款原因名称：").pack(anchor=tk.W, pady=(6, 1))
+        name_entry = ttk.Entry(panel, textvariable=self.entry_vars["name"], font=("微软雅黑", 10), width=32)
+        name_entry.pack(fill=tk.X, pady=1)
+        name_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+
+        ttk.Label(panel, text="赔付比例 (百分比数字，如30)：").pack(anchor=tk.W, pady=(6, 1))
+        ratio_entry = ttk.Entry(panel, textvariable=self.entry_vars["ratio"], font=("微软雅黑", 10), width=32)
+        ratio_entry.pack(fill=tk.X, pady=1)
+        ratio_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+
+        ttk.Label(panel, text="所属分类：").pack(anchor=tk.W, pady=(6, 1))
+        self.group_combo = ttk.Combobox(panel, textvariable=self.entry_vars["group"], font=("微软雅黑", 10), width=30, state="readonly")
+        self.group_combo.pack(fill=tk.X, pady=1)
+        self.group_combo.bind("<<ComboboxSelected>>", lambda e: self.on_group_changed())
+
+        ttk.Label(panel, text="方案等级：").pack(anchor=tk.W, pady=(6, 1))
+        self.level_combo = ttk.Combobox(panel, textvariable=self.entry_vars["level"], font=("微软雅黑", 10), width=30, state="readonly")
+        self.level_combo.pack(fill=tk.X, pady=1)
+        self.level_combo.bind("<<ComboboxSelected>>", lambda e: self.on_level_changed())
+
+        self.top_level_label = ttk.Label(panel, text="🏆 最高赔偿方案", foreground="red", font=("微软雅黑", 10, "bold"))
+
+        self.final_label = ttk.Label(panel, text="最终方案增加百分比：")
+        self.final_label.pack(anchor=tk.W, pady=(6, 1))
+        self.final_entry = ttk.Entry(panel, textvariable=self.entry_vars["final_increase"], font=("微软雅黑", 10), width=32)
+        self.final_entry.pack(fill=tk.X, pady=1)
+        self.final_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+
+        ttk.Label(panel, text="详细描述 (悬停补充)：").pack(anchor=tk.W, pady=(6, 1))
+        desc_entry = ttk.Entry(panel, textvariable=self.entry_vars["desc"], font=("微软雅黑", 10), width=32)
+        desc_entry.pack(fill=tk.X, pady=1)
+        desc_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+
+        self.status_label.pack(anchor=tk.W, pady=(10, 0))
+
+        btn_frame = ttk.Frame(panel)
+        btn_frame.pack(fill=tk.X, pady=12)
+        ttk.Button(btn_frame, text="💾 保存修改", command=self.save_current).pack(side=tk.LEFT, padx=7, ipadx=1)
+        ttk.Button(btn_frame, text="📝 话术模板", command=self.open_template_editor).pack(side=tk.LEFT, padx=7, ipadx=1)
+        ttk.Button(btn_frame, text="❌ 关闭", command=self.on_close).pack(side=tk.RIGHT, padx=7, ipadx=1)
+
+        self.clear_detail_fields()
+
+    def refresh_tree(self):
+        if not self.tree:
+            return
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        for i, cat in enumerate(self.categories):
+            ratio_percent = int(cat.get("ratio", 0) * 100)
+            level = cat.get("level", 1)
+            self.tree.insert("", tk.END, iid=str(i), values=(cat["name"], f"{ratio_percent}%", f"方案{level}"))
+
+    def on_tree_select(self, event):
+        selection = self.tree.selection()
+        if not selection:
+            self.clear_detail_fields()
+            return
+        idx = int(selection[0])
+        if 0 <= idx < len(self.categories):
+            cat = self.categories[idx]
+            self.current_edit_idx = idx
+            self.entry_vars["name"].set(cat.get("name", ""))
+            self.entry_vars["ratio"].set(str(int(cat.get("ratio", 0) * 100)))
+            self.entry_vars["desc"].set(cat.get("desc", ""))
+            self.entry_vars["group"].set(cat.get("group", ""))
+            self.entry_vars["final_increase"].set(str(cat.get("final_increase", 5)))
+            self.update_comboboxes()
+            current_level = cat.get("level", 1)
+            self.entry_vars["level"].set(str(current_level))
+            self.update_top_level_visibility()
+
+    def update_top_level_visibility(self):
+        selected_group = self.entry_vars["group"].get().strip()
+        current_level = int(self.entry_vars["level"].get() or 1)
+
+        max_level_in_group = max([c.get("level", 0) for c in self.categories if c.get("group", "") == selected_group], default=0)
+
+        is_top_level = (current_level >= max_level_in_group)
+
+        if is_top_level:
+            self.top_level_label.pack(anchor=tk.W, pady=(6, 1))
+            self.final_label.pack(anchor=tk.W, pady=(6, 1))
+            self.final_entry.pack(fill=tk.X, pady=1)
+        else:
+            self.top_level_label.pack_forget()
+            self.final_label.pack_forget()
+            self.final_entry.pack_forget()
+
+    def update_comboboxes(self):
+        self.group_combo["values"] = self.groups
+        self.update_levels_for_group()
+
+    def update_levels_for_group(self):
+        selected_group = self.entry_vars["group"].get().strip()
+        count_in_group = sum(1 for c in self.categories if c.get("group", "") == selected_group)
+        max_level = max(count_in_group, 1)
+
+        level_values = [str(i) for i in range(1, max_level + 1)]
+        self.level_combo["values"] = level_values
+
+    def on_group_changed(self):
+        self.update_levels_for_group()
+        self.auto_save()
+        self.update_top_level_visibility()
+
+    def on_level_changed(self):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        idx = int(selection[0])
+        if idx < 0 or idx >= len(self.categories):
+            return
+
+        current_cat = self.categories[idx]
+        selected_group = current_cat.get("group", "")
+        new_level = int(self.entry_vars["level"].get())
+        old_level = current_cat.get("level", 1)
+
+        for i, cat in enumerate(self.categories):
+            if i != idx and cat.get("group", "") == selected_group and cat.get("level", 0) == new_level:
+                cat["level"] = old_level
+                break
+
+        self.auto_save()
+        self.update_top_level_visibility()
+
+    def clear_detail_fields(self):
+        for var in self.entry_vars.values():
+            var.set("")
+        self.update_comboboxes()
+
+    def auto_save(self):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        idx = int(selection[0])
+        try:
+            ratio_percent = float(self.entry_vars["ratio"].get())
+            if not (0 <= ratio_percent <= 100):
+                return
+            ratio_val = ratio_percent / 100
+        except:
+            return
+
+        name = self.entry_vars["name"].get().strip()
+        if not name:
+            return
+
+        self.categories[idx]["name"] = name
+        self.categories[idx]["ratio"] = ratio_val
+        self.categories[idx]["desc"] = self.entry_vars["desc"].get().strip()
+        self.categories[idx]["group"] = self.entry_vars["group"].get().strip()
+        self.categories[idx]["level"] = int(self.entry_vars["level"].get() or 1)
+        self.categories[idx]["final_increase"] = float(self.entry_vars["final_increase"].get() or 5)
+
+        self.refresh_tree()
+        self.callback(self.categories)
+        self.tree.selection_set(str(idx))
+        self.status_label.config(text="已保存")
+        self.after_id = self.after(2000, lambda: self.status_label.config(text=""))
+
+    def save_current(self):
+        self.auto_save()
+
+    def add_category(self):
+        selected_group = self.entry_vars["group"].get().strip() or (self.groups[0] if self.groups else "腐烂")
+
+        same_group_cats = [c for c in self.categories if c.get("group", "") == selected_group]
+        max_level = max([c.get("level", 0) for c in same_group_cats], default=0)
+        new_level = max_level + 1
+
+        new_cat = {
+            "name": "新方案",
+            "desc": "",
+            "ratio": 0.2,
+            "group": selected_group,
+            "level": new_level,
+            "final_increase": 5,
+            "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？",
+            "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？",
+        }
+        self.categories.append(new_cat)
+        self.refresh_tree()
+        self.callback(self.categories)
+        children = self.tree.get_children()
+        if children:
+            last_idx = len(children) - 1
+            self.tree.selection_set(children[last_idx])
+            self.tree.focus(children[last_idx])
+            self.on_tree_select(None)
+
+    def delete_category(self):
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("未选择", "请先选中要删除的分类")
+            return
+        idx = int(selection[0])
+        if messagebox.askyesno("确认删除", f"确定删除【{self.categories[idx]['name']}】吗？"):
+            del self.categories[idx]
+            self.refresh_tree()
+            self.callback(self.categories)
+            self.clear_detail_fields()
+
+    def open_template_editor(self):
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("未选择", "请先在左侧列表选中一个分类")
+            return
+        idx = int(selection[0])
+        TemplateEditorDialog(self, idx, self.categories[idx], self.on_template_updated)
+
+    def on_template_updated(self, idx, template, template_upgrade):
+        self.categories[idx]["template"] = template
+        self.categories[idx]["template_upgrade"] = template_upgrade
+        messagebox.showinfo("成功", "话术模板已更新")
+
+    def on_close(self):
+        # 最终保存并回调
+        self.callback(self.categories)
+        self.destroy()
+
+
+# ==================== 话术模板编辑对话框 ====================
+class TemplateEditorDialog(tk.Toplevel):
+    def __init__(self, parent, idx, category, callback):
+        super().__init__(parent)
+        self.title(f"话术模板编辑 · {category.get('name', '')}")
+        self.geometry("700x550")
+        self.resizable(True, True)
+
+        self.idx = idx
+        self.category = category
+        self.callback = callback
+
+        self.build_ui()
+        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
+
+    def build_ui(self):
+        main_frame = ttk.Frame(self, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="可用的变量占位符：{name}退款原因、{desc}详细描述、{ratio}赔付比例、{money}赔付金额、{final_ratio}最终赔付比例",
+                  font=("微软雅黑", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Label(main_frame, text="方案话术模板（初始方案使用）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.template_text = tk.Text(main_frame, height=6, font=("微软雅黑", 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
+        self.template_text.pack(fill=tk.X, pady=(0, 5))
+
+        placeholder_frame1 = ttk.Frame(main_frame)
+        placeholder_frame1.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(placeholder_frame1, text="快速插入：", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        placeholders1 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额")]
+        for ph, label in placeholders1:
+            ttk.Button(placeholder_frame1, text=label, width=8,
+                      command=lambda p=ph: self.template_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
+
+        ttk.Label(main_frame, text="升级话术模板（顾客不同意时使用）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.template_upgrade_text = tk.Text(main_frame, height=6, font=("微软雅黑", 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
+        self.template_upgrade_text.pack(fill=tk.X, pady=(0, 5))
+
+        placeholder_frame2 = ttk.Frame(main_frame)
+        placeholder_frame2.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(placeholder_frame2, text="快速插入：", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        placeholders2 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额"), ("{final_ratio}", "最终赔付比例")]
+        for ph, label in placeholders2:
+            ttk.Button(placeholder_frame2, text=label, width=10,
+                      command=lambda p=ph: self.template_upgrade_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
+
+        self.template_text.insert("1.0", self.category.get("template", ""))
+        self.template_upgrade_text.insert("1.0", self.category.get("template_upgrade", ""))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=10)
+        ttk.Button(btn_frame, text="💾 保存", command=self.on_save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="恢复默认", command=self.on_reset).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="❌ 取消", command=self.on_cancel).pack(side=tk.RIGHT, padx=5)
+
+    def on_save(self):
+        template = self.template_text.get("1.0", tk.END).strip()
+        template_upgrade = self.template_upgrade_text.get("1.0", tk.END).strip()
+        self.callback(self.idx, template, template_upgrade)
+        self.destroy()
+
+    def on_reset(self):
+        default_template = "亲，非常抱歉！根据您反馈的【{name}】（{desc}），我们按单根/问题部分赔付{ratio}%，为您直接补偿 {money} 元。金额立即到账，无需退货，您看可以吗？"
+        default_upgrade = "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付 {money} 元。金额立即到账，无需退货，这是我们最大的诚意了，您看可以吗？"
+        self.template_text.delete("1.0", tk.END)
+        self.template_text.insert("1.0", default_template)
+        self.template_upgrade_text.delete("1.0", tk.END)
+        self.template_upgrade_text.insert("1.0", default_upgrade)
+
+    def on_cancel(self):
+        self.destroy()
+
+
+# ==================== 退款大类管理对话框 ====================
+class GroupManagerDialog(tk.Toplevel):
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+        self.withdraw()
+        self.title("分类管理")
+
+        self.groups = load_groups()
+        self.callback = callback
+        self.group_vars = {}
+
+        self.build_ui()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.update_idletasks()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        window_width = 500
+        window_height = 500
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.deiconify()
+
+    def create_tooltip(self, widget, text):
+        tooltip = None
+        def on_enter(event):
+            nonlocal tooltip
+            x = widget.winfo_rootx() + widget.winfo_width() // 2
+            y = widget.winfo_rooty() + widget.winfo_height() + 4
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            label = ttk.Label(tooltip, text=text, background="#ffffcc", relief=tk.SOLID, borderwidth=1,
+                              font=("微软雅黑", 9), padding=6, wraplength=220)
+            label.pack()
+        def on_leave(event):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+
+    def build_ui(self):
+        main_frame = ttk.Frame(self, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="已设置的分类（可新增/编辑/删除）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        self.group_listbox = tk.Listbox(list_frame, font=("微软雅黑", 11), height=8)
+        self.group_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.group_listbox.yview)
+        self.group_listbox.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.refresh_list()
+
+        input_frame = ttk.Frame(main_frame)
+        input_frame.pack(fill=tk.X, pady=(0, 10))
+        self.new_group_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=self.new_group_var, font=("微软雅黑", 11)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        ttk.Button(input_frame, text="新增分类", command=self.add_group).pack(side=tk.RIGHT)
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        btn_del_grp = ttk.Button(btn_frame, text="删除选中", command=self.delete_group)
+        btn_del_grp.pack(side=tk.LEFT, padx=8, ipadx=1)
+        if DEBUG_MODE:
+            self.create_tooltip(btn_del_grp, "[分类窗口_删除选中]")
+        ttk.Button(btn_frame, text="关闭", command=self.on_close).pack(side=tk.RIGHT, padx=8, ipadx=1)
+
+    def refresh_list(self):
+        self.group_listbox.delete(0, tk.END)
+        for g in self.groups:
+            self.group_listbox.insert(tk.END, g)
+
+    def add_group(self):
+        new_group = self.new_group_var.get().strip()
+        if not new_group:
+            messagebox.showwarning("提示", "请输入分类名称")
+            return
+        if new_group in self.groups:
+            messagebox.showwarning("提示", "该分类已存在")
+            return
+        self.groups.append(new_group)
+        self.groups.sort()
+        self.new_group_var.set("")
+        self.refresh_list()
+        save_groups(self.groups)
+        self.callback(self.groups)
+
+    def delete_group(self):
+        selection = self.group_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选中要删除的分类")
+            return
+        idx = selection[0]
+        group_name = self.groups[idx]
+        if messagebox.askyesno("确认删除", f"确定删除分类【{group_name}】吗？\n注意：该分类下的所有方案也会被删除！"):
+            del self.groups[idx]
+            self.refresh_list()
+            save_groups(self.groups)
+            self.callback(self.groups)
+
+    def on_close(self):
+        self.destroy()
+
+
+# ==================== 主程序入口 ====================
 if __name__ == "__main__":
-    # 检查依赖库
-    try:
-        app = RefundCalculator()
-        app.run()
-    except ImportError as e:
-        print(f"缺少依赖库: {e}")
-        print("请运行以下命令安装依赖:")
-        print("conda activate js")
-        print("pip install pystray keyboard pillow")
-    except Exception as e:
-        print(f"应用程序启动失败: {e}")
+    root = tk.Tk()
+    app = RefundApp(root)
+    root.mainloop()
