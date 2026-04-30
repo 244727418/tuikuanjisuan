@@ -1,6 +1,27 @@
 [
-  "发芽",
-  "挤压",
-  "断裂",
-  "腐烂"
+  {
+    "name": "发芽",
+    "per_root_enabled": false,
+    "color": "#e835ad"
+  },
+  {
+    "name": "外观瑕疵",
+    "per_root_enabled": false,
+    "color": "#27ae60"
+  },
+  {
+    "name": "挤压",
+    "per_root_enabled": false,
+    "color": "#f2994a"
+  },
+  {
+    "name": "断裂",
+    "per_root_enabled": false,
+    "color": "#eb5757"
+  },
+  {
+    "name": "腐烂",
+    "per_root_enabled": true,
+    "color": "#6b7280"
+  }
 ]

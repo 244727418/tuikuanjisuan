@@ -7,8 +7,8 @@
     "group": "腐烂",
     "level": 1,
     "final_increase": 5.0,
-    "template": "亲，对不起让您失望了，我们一定积极改进，感谢您的指正，这边给您赔偿实付金额的{ratio}，共计赔付{money}",
-    "template_upgrade": ""
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "中度腐烂",
@@ -17,16 +17,20 @@
     "scope": "单根腐烂小于1/3",
     "group": "腐烂",
     "level": 2,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "重度腐烂",
     "desc": "大面积腐烂、发黑发霉超过1/2",
-    "ratio": 1.0,
+    "ratio": 0.8,
     "scope": "单根腐烂超过一半",
     "group": "腐烂",
     "level": 3,
-    "final_increase": 5.0
+    "final_increase": 10.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "轻度发芽",
@@ -35,7 +39,9 @@
     "scope": "芽点刚萌动",
     "group": "发芽",
     "level": 1,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "中度发芽",
@@ -44,7 +50,10 @@
     "scope": "芽长1到3厘米",
     "group": "发芽",
     "level": 2,
-    "final_increase": 5.0
+    "final_increase": 5,
+    "per_root_enabled": false,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "重度发芽",
@@ -53,7 +62,9 @@
     "scope": "芽长超过3厘米",
     "group": "发芽",
     "level": 3,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "轻度断裂",
@@ -62,7 +73,9 @@
     "scope": "断裂1到2根",
     "group": "断裂",
     "level": 1,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "中度断裂",
@@ -71,7 +84,9 @@
     "scope": "断裂2到3根",
     "group": "断裂",
     "level": 2,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "重度断裂",
@@ -80,14 +95,43 @@
     "scope": "断裂3根及以上",
     "group": "断裂",
     "level": 3,
-    "final_increase": 5.0
+    "final_increase": 5.0,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
   },
   {
     "name": "轻微挤压",
     "desc": "",
     "ratio": 0.2,
     "scope": "请修改范畴",
-    "template": "啊啊啊啊",
-    "template_upgrade": ""
+    "group": "挤压",
+    "level": 1,
+    "final_increase": 5,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
+  },
+  {
+    "name": "外观轻度瑕疵",
+    "desc": "外观轻微磕碰瑕疵",
+    "ratio": 0.1,
+    "group": "外观瑕疵",
+    "level": 1,
+    "final_increase": 5,
+    "per_root_enabled": false,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "scope": "外观有轻微磕碰瑕疵"
+  },
+  {
+    "name": "外观中度瑕疵",
+    "desc": "外观中等程度瑕疵",
+    "ratio": 0.2,
+    "group": "外观瑕疵",
+    "level": 2,
+    "final_increase": 5,
+    "per_root_enabled": false,
+    "template": "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "template_upgrade": "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？",
+    "scope": "外观中等程度瑕疵"
   }
 ]
