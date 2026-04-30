@@ -2,7 +2,19 @@ import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import json
 import os
+import io
 from datetime import datetime
+
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = None
+    ImageTk = None
+
+try:
+    import cairosvg
+except ImportError:
+    cairosvg = None
 
 DEBUG_MODE = True
 GROUP_COLOR_PALETTE = [
@@ -135,12 +147,23 @@ DEFAULT_GROUPS = [{'name': '发芽', 'per_root_enabled': False},
  {'name': '断裂', 'per_root_enabled': False},
  {'name': '腐烂', 'per_root_enabled': True}]
 
+DATA_FILE = "refund_data.json"
+DATA_VERSION = 1
 CONFIG_FILE = "refund_categories.json"
 LOG_FILE = "refund_log.json"
 GROUPS_FILE = "refund_groups.json"
 APP_CONFIG_FILE = "config.json"
+PER_ROOT_ICON_FILE = os.path.join("assets", "per_root.png")
+PER_ROOT_SVG_ICON_FILE = os.path.join("assets", "per_root.svg")
 DEFAULT_TEMPLATE = "亲，非常抱歉！根据您反馈的【{name}】（{desc}），这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
 DEFAULT_UPGRADE_TEMPLATE = "亲，非常抱歉！您说方案一（赔付{ratio}%）无法接受，我们非常重视您的反馈，决定升级补偿方案，按{final_ratio}%赔付。这边帮您申请赔偿 {money} 元，不用自己申请哈。客服帮您申请是秒到账的，您看可以吗？"
+FONT_FAMILY = "微软雅黑"
+APP_BG = "#f4f7fb"
+PANEL_BG = "#ffffff"
+TEXT_BG = "#fbfdff"
+MUTED_FG = "#6b7280"
+PRIMARY_FG = "#1f2937"
+ACCENT = "#2563eb"
 
 
 def show_toast(parent, message, kind="info"):
@@ -196,7 +219,7 @@ def show_toast(parent, message, kind="info"):
         if step < 5:
             toast.after(40, lambda: fade_in(step + 1))
         else:
-            toast.after(600, fade_out)
+            toast.after(200, fade_out)
 
     def fade_out(step=5):
         if not toast.winfo_exists():
@@ -211,6 +234,26 @@ def show_toast(parent, message, kind="info"):
 
     set_alpha(0)
     fade_in()
+
+
+def load_per_root_icon(size=18):
+    if Image is not None and ImageTk is not None and os.path.exists(PER_ROOT_ICON_FILE):
+        try:
+            image = Image.open(PER_ROOT_ICON_FILE).convert("RGBA")
+            image.thumbnail((size, size), Image.LANCZOS)
+            return ImageTk.PhotoImage(image)
+        except Exception:
+            pass
+
+    if Image is not None and ImageTk is not None and cairosvg is not None and os.path.exists(PER_ROOT_SVG_ICON_FILE):
+        try:
+            png_bytes = cairosvg.svg2png(url=PER_ROOT_SVG_ICON_FILE, output_width=size, output_height=size)
+            image = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+            return ImageTk.PhotoImage(image)
+        except Exception:
+            pass
+
+    return None
 
 
 # ==================== 数据管理 ====================
@@ -232,21 +275,108 @@ def normalize_group(group, index=0):
     }
 
 
-def load_app_config():
-    if os.path.exists(APP_CONFIG_FILE):
+def read_json_file(path, default):
+    if os.path.exists(path):
         try:
-            with open(APP_CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
         except:
             pass
-    return {}
+    return default
+
+
+def default_data():
+    return {
+        "version": DATA_VERSION,
+        "categories": [dict(c) for c in DEFAULT_CATEGORIES],
+        "groups": [normalize_group(g, i) for i, g in enumerate(DEFAULT_GROUPS)],
+        "logs": [],
+        "app_config": {},
+    }
+
+
+def normalize_data(data):
+    fallback = default_data()
+    if not isinstance(data, dict):
+        data = {}
+
+    categories = data.get("categories")
+    if not isinstance(categories, list):
+        categories = fallback["categories"]
+
+    groups = data.get("groups")
+    if not isinstance(groups, list):
+        groups = fallback["groups"]
+    groups = [
+        normalized
+        for i, group in enumerate(groups)
+        for normalized in [normalize_group(group, i)]
+        if normalized.get("name")
+    ] or fallback["groups"]
+
+    logs = data.get("logs")
+    if not isinstance(logs, list):
+        logs = []
+
+    app_config = data.get("app_config")
+    if not isinstance(app_config, dict):
+        app_config = {}
+
+    return {
+        "version": data.get("version", DATA_VERSION),
+        "categories": categories,
+        "groups": groups,
+        "logs": logs,
+        "app_config": app_config,
+    }
+
+
+def load_legacy_data():
+    data = default_data()
+
+    legacy_categories = read_json_file(CONFIG_FILE, None)
+    if isinstance(legacy_categories, list):
+        data["categories"] = legacy_categories
+
+    legacy_groups = read_json_file(GROUPS_FILE, None)
+    if isinstance(legacy_groups, list):
+        data["groups"] = legacy_groups
+
+    legacy_logs = read_json_file(LOG_FILE, None)
+    if isinstance(legacy_logs, list):
+        data["logs"] = legacy_logs
+
+    legacy_config = read_json_file(APP_CONFIG_FILE, None)
+    if isinstance(legacy_config, dict):
+        data["app_config"] = legacy_config
+
+    return normalize_data(data)
+
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        return normalize_data(read_json_file(DATA_FILE, {}))
+    return load_legacy_data()
+
+
+def save_data(data):
+    normalized = normalize_data(data)
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=False, indent=2)
+
+
+def update_data_section(section, value):
+    data = load_data()
+    data[section] = value
+    save_data(data)
+
+
+def load_app_config():
+    return load_data().get("app_config", {})
 
 
 def save_app_config(config):
-    with open(APP_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+    update_data_section("app_config", config if isinstance(config, dict) else {})
 
 
 def load_recent_colors(groups=None):
@@ -273,55 +403,27 @@ def save_recent_colors(colors):
 
 
 def load_groups():
-    if os.path.exists(GROUPS_FILE):
-        try:
-            with open(GROUPS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return [
-                    normalized
-                    for i, g in enumerate(data)
-                    for normalized in [normalize_group(g, i)]
-                    if normalized.get("name")
-                ]
-        except:
-            pass
-    return [normalize_group(g, i) for i, g in enumerate(DEFAULT_GROUPS)]
+    return load_data().get("groups", [])
 
 
 def save_groups(groups):
-    with open(GROUPS_FILE, "w", encoding="utf-8") as f:
-        json.dump(groups, f, ensure_ascii=False, indent=2)
+    update_data_section("groups", groups)
 
 
 def load_categories():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    # 默认数据深拷贝
-    return [dict(c) for c in DEFAULT_CATEGORIES]
+    return load_data().get("categories", [])
 
 
 def save_categories(categories):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(categories, f, ensure_ascii=False, indent=2)
+    update_data_section("categories", categories)
 
 
 def load_log():
-    if os.path.exists(LOG_FILE):
-        try:
-            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    return []
+    return load_data().get("logs", [])
 
 
 def save_log(logs):
-    with open(LOG_FILE, "w", encoding="utf-8") as f:
-        json.dump(logs, f, ensure_ascii=False, indent=2)
+    update_data_section("logs", logs)
 
 
 def add_log_entry(reason_name, amount, ratio, level, refund_money=None, total_roots="", bad_roots="", use_per_root=False, disagree_count=1):
@@ -412,7 +514,7 @@ class RoundedButton(tk.Canvas):
             height // 2,
             text=self.text,
             fill=self.color,
-            font=("微软雅黑", 11, "bold"),
+            font=(FONT_FAMILY, 11, "bold"),
         )
 
     def on_enter(self, event):
@@ -439,8 +541,10 @@ class RefundApp:
     def __init__(self, root):
         self.root = root
         self.root.title("生鲜山药售后 · 话术生成器")
-        self.root.geometry("600x800")
-        self.root.minsize(600, 800)
+        self.root.geometry("680x840")
+        self.root.minsize(640, 800)
+        self.root.configure(bg=APP_BG)
+        self.configure_styles()
 
         self.categories = load_categories()
         self.groups = load_groups()
@@ -458,43 +562,68 @@ class RefundApp:
         self.settings_dialog = None
         self.group_manager_dialog = None
         self.log_viewer_dialog = None
+        self.per_root_icon = load_per_root_icon()
 
         self.build_ui()
         self.refresh_bubbles()
         self.root.update_idletasks()
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        window_width = 600
-        window_height = 800
+        window_width = 680
+        window_height = 840
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
+    def configure_styles(self):
+        self.root.option_add("*Font", f"{FONT_FAMILY} 10")
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(".", font=(FONT_FAMILY, 10), background=APP_BG, foreground=PRIMARY_FG)
+        style.configure("TFrame", background=APP_BG)
+        style.configure("Panel.TFrame", background=APP_BG)
+        style.configure("TLabel", background=APP_BG, foreground=PRIMARY_FG)
+        style.configure("Muted.TLabel", background=APP_BG, foreground=MUTED_FG)
+        style.configure("Header.TLabel", background=APP_BG, foreground="#111827", font=(FONT_FAMILY, 16, "bold"))
+        style.configure("Section.TLabel", background=APP_BG, foreground=PRIMARY_FG, font=(FONT_FAMILY, 10, "bold"))
+        style.configure("TButton", font=(FONT_FAMILY, 10), padding=(8, 5))
+        style.configure("TEntry", padding=(4, 3))
+        style.configure("TCombobox", padding=(4, 3))
+        style.configure("TLabelFrame", background=APP_BG, bordercolor="#d8e0ea", relief=tk.SOLID)
+        style.configure("TLabelFrame.Label", background=APP_BG, foreground="#111827", font=(FONT_FAMILY, 10, "bold"))
+        style.configure("Treeview", font=(FONT_FAMILY, 10), rowheight=28, background=PANEL_BG, fieldbackground=PANEL_BG, foreground=PRIMARY_FG)
+        style.configure("Treeview.Heading", font=(FONT_FAMILY, 10, "bold"), background="#eaf1fb", foreground="#111827")
+        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", "#111827")])
+
     # ---------- 主界面 ----------
     def build_ui(self):
         # 顶部说明
-        top_frame = ttk.Frame(self.root, padding=10)
+        top_frame = ttk.Frame(self.root, padding=(14, 12, 14, 8))
         top_frame.pack(fill=tk.X)
-        ttk.Label(top_frame, text="🛠️ 山药售后问题快速话术生成", font=("微软雅黑", 14, "bold")).pack(anchor=tk.W)
-        ttk.Label(top_frame, text="鼠标悬停气泡查看退款范畴 · 点击气泡自动生成话术", foreground="gray").pack(anchor=tk.W)
+        ttk.Label(top_frame, text="🛠️ 山药售后问题快速话术生成", style="Header.TLabel").pack(anchor=tk.W)
+        ttk.Label(top_frame, text="鼠标悬停气泡查看退款范畴 · 点击气泡自动生成话术", style="Muted.TLabel").pack(anchor=tk.W, pady=(3, 0))
 
         # 中间：气泡容器 + 右侧设置按钮
         middle_frame = ttk.Frame(self.root)
-        middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        middle_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(4, 10))
 
         # 右侧设置面板（先放置固定宽度）
-        right_frame = ttk.Frame(middle_frame, width=160)
+        right_frame = ttk.Frame(middle_frame, width=190, style="Panel.TFrame", padding=(10, 8))
         right_frame.pack(side=tk.RIGHT, fill=tk.Y)
         right_frame.pack_propagate(False)
 
         # 左侧气泡区域（自适应内容）
-        left_frame = ttk.LabelFrame(middle_frame, text="退款方案选择", padding=8)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+        left_frame = ttk.LabelFrame(middle_frame, text="退款方案选择", padding=10)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 12))
 
-        canvas = tk.Canvas(left_frame, borderwidth=0, highlightthickness=0)
+        canvas = tk.Canvas(left_frame, borderwidth=0, highlightthickness=0, bg=APP_BG)
         scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=canvas.yview)
         self.bubble_canvas = canvas
-        self.bubble_frame = tk.Frame(canvas)
+        self.bubble_frame = tk.Frame(canvas, bg=APP_BG)
 
         self.bubble_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=self.bubble_frame, anchor="nw")
@@ -503,40 +632,41 @@ class RefundApp:
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        ttk.Button(right_frame, text="⚙️ 设置管理", command=self.open_settings).pack(fill=tk.X, pady=7, ipadx=1)
-        ttk.Button(right_frame, text="🏷️ 分类管理", command=self.open_group_manager).pack(fill=tk.X, pady=7, ipadx=1)
-        ttk.Button(right_frame, text="📊 查看记录日志", command=self.open_log_viewer).pack(fill=tk.X, pady=7, ipadx=1)
-        ttk.Separator(right_frame).pack(fill=tk.X, pady=6)
+        ttk.Button(right_frame, text="⚙️ 设置管理", command=self.open_settings).pack(fill=tk.X, pady=4, ipadx=1)
+        ttk.Button(right_frame, text="🏷️ 分类管理", command=self.open_group_manager).pack(fill=tk.X, pady=4, ipadx=1)
+        ttk.Button(right_frame, text="📊 查看记录日志", command=self.open_log_viewer).pack(fill=tk.X, pady=4, ipadx=1)
+        ttk.Separator(right_frame).pack(fill=tk.X, pady=4)
 
-        ttk.Label(right_frame, text="实付金额 (元)：").pack(anchor=tk.W)
-        self.amount_entry = ttk.Entry(right_frame, textvariable=self.amount_var, font=("微软雅黑", 11))
-        self.amount_entry.pack(fill=tk.X, pady=2)
+        ttk.Label(right_frame, text="实付金额 (元)：", style="Section.TLabel").pack(anchor=tk.W)
+        self.amount_entry = ttk.Entry(right_frame, textvariable=self.amount_var, font=(FONT_FAMILY, 11))
+        self.amount_entry.pack(fill=tk.X, pady=(4, 2))
         self.amount_entry.bind("<FocusIn>", lambda e: self.amount_entry.select_range(0, tk.END))
 
         self.root_count_frame = ttk.LabelFrame(right_frame, text="按根数赔付", padding=6)
-        self.root_count_frame.pack(fill=tk.X, pady=(8, 2))
+        self.root_count_frame.pack(fill=tk.X, pady=(6, 2))
         ttk.Label(self.root_count_frame, text="用户收到根数（可选）：").pack(anchor=tk.W)
         self.total_roots_var = tk.StringVar()
-        self.total_roots_entry = ttk.Entry(self.root_count_frame, textvariable=self.total_roots_var, font=("微软雅黑", 10))
-        self.total_roots_entry.pack(fill=tk.X, pady=(1, 5))
+        self.total_roots_entry = ttk.Entry(self.root_count_frame, textvariable=self.total_roots_var, font=(FONT_FAMILY, 10))
+        self.total_roots_entry.pack(fill=tk.X, pady=(1, 3))
         ttk.Label(self.root_count_frame, text="损坏根数（可选）：").pack(anchor=tk.W)
         self.bad_roots_var = tk.StringVar()
-        self.bad_roots_entry = ttk.Entry(self.root_count_frame, textvariable=self.bad_roots_var, font=("微软雅黑", 10))
+        self.bad_roots_entry = ttk.Entry(self.root_count_frame, textvariable=self.bad_roots_var, font=(FONT_FAMILY, 10))
         self.bad_roots_entry.pack(fill=tk.X, pady=(1, 0))
-        ttk.Label(self.root_count_frame, text="填写完整且分类已勾选时生效", foreground="gray", wraplength=140).pack(anchor=tk.W, pady=(5, 0))
+        ttk.Label(self.root_count_frame, text="填写完整且分类已勾选时生效", style="Muted.TLabel", wraplength=155).pack(anchor=tk.W, pady=(3, 0))
 
-        ttk.Separator(right_frame).pack(fill=tk.X, pady=8)
+        ttk.Separator(right_frame).pack(fill=tk.X, pady=5)
 
-        ttk.Label(right_frame, text="生成话术预览：").pack(anchor=tk.W)
-        self.history_text = tk.Text(right_frame, height=14, width=28, font=("微软雅黑", 9), wrap=tk.WORD,
-                                    relief=tk.SUNKEN, borderwidth=1)
-        self.history_text.pack(fill=tk.BOTH, expand=True, pady=2)
+        ttk.Label(right_frame, text="生成话术预览：", style="Section.TLabel").pack(anchor=tk.W)
+        self.history_text = tk.Text(right_frame, height=11, width=28, font=(FONT_FAMILY, 10), wrap=tk.WORD,
+                                    relief=tk.SOLID, borderwidth=1, bg=TEXT_BG, fg=PRIMARY_FG,
+                                    insertbackground=PRIMARY_FG, padx=8, pady=8)
+        self.history_text.pack(fill=tk.BOTH, expand=True, pady=(3, 4))
         self.disagree_btn = ttk.Button(right_frame, text="顾客不同意 → 升级方案", command=self.on_disagree)
-        self.disagree_btn.pack(fill=tk.X, pady=4)
+        self.disagree_btn.pack(fill=tk.X, pady=(2, 4))
 
         # 底部状态栏
         self.status_var = tk.StringVar(value="就绪")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=3)
+        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.FLAT, anchor=tk.W, padding=(10, 5), style="Muted.TLabel")
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     # ---------- 刷新气泡按钮 ----------
@@ -548,35 +678,41 @@ class RefundApp:
         for widget in self.bubble_frame.winfo_children():
             widget.destroy()
 
+        group_names = get_group_names(self.groups)
+        group_names.sort(key=lambda name: 0 if is_group_per_root_enabled(self.groups, name) else 1)
+
         row = 0
-        for group_name in get_group_names(self.groups):
+        for group_name in group_names:
             group_cats = [c for c in self.categories if c.get("group", "") == group_name]
             group_cats.sort(key=lambda x: x.get("level", 0))
             if not group_cats:
                 continue
             group_color = get_group_color(self.groups, group_name)
 
-            title_frame = ttk.Frame(self.bubble_frame)
+            title_frame = tk.Frame(self.bubble_frame, bg=group_color)
             title_frame.grid(row=row, column=0, columnspan=3, sticky="ew", padx=3, pady=(6 if row else 0, 2))
-            tk.Frame(title_frame, width=4, height=16, bg=group_color).pack(side=tk.LEFT, padx=(0, 5))
             tk.Label(
                 title_frame,
                 text=group_name,
-                font=("微软雅黑", 9, "bold"),
-                foreground=group_color,
-                background="#f7f8fa",
-                padx=6,
-                pady=1,
+                font=(FONT_FAMILY, 10, "bold"),
+                foreground="#111827",
+                background=group_color,
+                padx=8,
+                pady=3,
             ).pack(side=tk.LEFT)
             if is_group_per_root_enabled(self.groups, group_name):
-                ttk.Label(
+                per_root_label = tk.Label(
                     title_frame,
                     text="按根数",
-                    font=("微软雅黑", 8),
-                    foreground="#0b6bcb",
-                    background="#e6f4ff",
-                    padding=(4, 1),
-                ).pack(side=tk.RIGHT)
+                    image=self.per_root_icon,
+                    compound=tk.LEFT if self.per_root_icon else tk.NONE,
+                    font=(FONT_FAMILY, 8),
+                    foreground="#111827",
+                    background="#ffffff",
+                    padx=6,
+                    pady=1,
+                )
+                per_root_label.pack(side=tk.RIGHT, padx=6, pady=3)
             row += 1
 
             for i, cat in enumerate(group_cats):
@@ -617,7 +753,7 @@ class RefundApp:
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{x}+{y}")
             label = ttk.Label(tooltip, text=text, background="#ffffcc", relief=tk.SOLID, borderwidth=1,
-                              font=("微软雅黑", 9), padding=6, wraplength=220)
+                              font=(FONT_FAMILY, 9), padding=6, wraplength=220)
             label.pack()
 
         def on_leave(event):
@@ -881,8 +1017,9 @@ class SettingsDialog(tk.Toplevel):
     def __init__(self, parent, categories, groups, callback, selected_name="", on_close_callback=None):
         super().__init__(parent)
         self.title("退款方案管理 · 编辑/添加/删除")
-        self.geometry("1100x650")
-        self.minsize(900, 550)
+        self.geometry("1100x750")
+        self.minsize(900, 650)
+        self.configure(bg=APP_BG)
         self.selected_name = selected_name
         self.on_close_callback = on_close_callback
 
@@ -893,18 +1030,21 @@ class SettingsDialog(tk.Toplevel):
         self.detail_frame = None
         self.entry_vars = {}
         self.template_editor_dialog = None
+        self.detail_entries = []
+        self.per_root_icon = load_per_root_icon()
 
         self.withdraw()
         self.fix_duplicate_levels()
         self.build_tree()
         self.build_detail_panel()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.bind("<Button-1>", self.on_detail_blank_click, add="+")
 
         self.update_idletasks()
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         window_width = 1100
-        window_height = 650
+        window_height = 750
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         self.geometry(f"{window_width}x{window_height}+{x}+{y}")
@@ -931,17 +1071,21 @@ class SettingsDialog(tk.Toplevel):
         frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         style = ttk.Style(self)
-        style.configure("CategoryManager.Treeview", font=("微软雅黑", 11), rowheight=30)
-        style.configure("CategoryManager.Treeview.Heading", font=("微软雅黑", 11, "bold"))
+        style.configure("CategoryManager.Treeview", font=(FONT_FAMILY, 11), rowheight=30)
+        style.configure("CategoryManager.Treeview.Heading", font=(FONT_FAMILY, 11, "bold"))
 
-        columns = ("group", "name", "ratio", "level")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse", style="CategoryManager.Treeview")
+        columns = ("group", "pay_type", "name", "ratio", "level")
+        self.tree = ttk.Treeview(frame, columns=columns, show="tree headings", selectmode="browse", style="CategoryManager.Treeview")
+        self.tree.heading("#0", text="")
+        self.tree.column("#0", width=30, minwidth=30, stretch=False, anchor=tk.CENTER)
         self.tree.heading("group", text="分类")
+        self.tree.heading("pay_type", text="赔付方式")
         self.tree.heading("name", text="退款原因")
         self.tree.heading("ratio", text="赔付比例(%)")
         self.tree.heading("level", text="等级")
         self.tree.column("group", width=110, anchor=tk.CENTER)
-        self.tree.column("name", width=180, anchor=tk.W)
+        self.tree.column("pay_type", width=90, anchor=tk.CENTER)
+        self.tree.column("name", width=160, anchor=tk.CENTER)
         self.tree.column("ratio", width=95, anchor=tk.CENTER)
         self.tree.column("level", width=70, anchor=tk.CENTER)
 
@@ -952,11 +1096,6 @@ class SettingsDialog(tk.Toplevel):
 
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         self.refresh_tree()
-
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=4)
-        ttk.Button(btn_frame, text="➕ 新增方案", command=self.add_category).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_frame, text="🗑️ 删除选中", command=self.delete_category).pack(side=tk.RIGHT, padx=3)
 
     def build_detail_panel(self):
         panel = ttk.LabelFrame(self, text="编辑选中分类详情", padding=12)
@@ -970,45 +1109,45 @@ class SettingsDialog(tk.Toplevel):
         self.entry_vars["level"] = tk.StringVar()
         self.entry_vars["final_increase"] = tk.StringVar()
 
-        self.status_label = ttk.Label(panel, text="", foreground="green", font=("微软雅黑", 9))
+        self.status_label = ttk.Label(panel, text="", foreground="green", font=(FONT_FAMILY, 9))
 
-        ttk.Label(panel, text="退款原因名称：").pack(anchor=tk.W, pady=(6, 1))
-        name_entry = ttk.Entry(panel, textvariable=self.entry_vars["name"], font=("微软雅黑", 10), width=32)
+        ttk.Label(panel, text="退款原因名称：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        name_entry = ttk.Entry(panel, textvariable=self.entry_vars["name"], font=(FONT_FAMILY, 10), width=32)
         name_entry.pack(fill=tk.X, pady=1)
-        name_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+        self.register_detail_entry(name_entry)
 
-        ttk.Label(panel, text="赔付比例 (百分比数字，如30)：").pack(anchor=tk.W, pady=(6, 1))
-        ratio_entry = ttk.Entry(panel, textvariable=self.entry_vars["ratio"], font=("微软雅黑", 10), width=32)
+        ttk.Label(panel, text="赔付比例 (百分比数字，如30)：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        ratio_entry = ttk.Entry(panel, textvariable=self.entry_vars["ratio"], font=(FONT_FAMILY, 10), width=32)
         ratio_entry.pack(fill=tk.X, pady=1)
-        ratio_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+        self.register_detail_entry(ratio_entry)
 
-        ttk.Label(panel, text="所属分类：").pack(anchor=tk.W, pady=(6, 1))
-        self.group_combo = ttk.Combobox(panel, textvariable=self.entry_vars["group"], font=("微软雅黑", 10), width=30, state="readonly")
+        ttk.Label(panel, text="所属分类：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        self.group_combo = ttk.Combobox(panel, textvariable=self.entry_vars["group"], font=(FONT_FAMILY, 10), width=30, state="readonly")
         self.group_combo.pack(fill=tk.X, pady=1)
         self.group_combo.bind("<<ComboboxSelected>>", lambda e: self.on_group_changed())
 
-        ttk.Label(panel, text="方案等级：").pack(anchor=tk.W, pady=(6, 1))
-        self.level_combo = ttk.Combobox(panel, textvariable=self.entry_vars["level"], font=("微软雅黑", 10), width=30, state="readonly")
+        ttk.Label(panel, text="方案等级：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        self.level_combo = ttk.Combobox(panel, textvariable=self.entry_vars["level"], font=(FONT_FAMILY, 10), width=30, state="readonly")
         self.level_combo.pack(fill=tk.X, pady=1)
         self.level_combo.bind("<<ComboboxSelected>>", lambda e: self.on_level_changed())
 
-        self.top_level_label = ttk.Label(panel, text="🏆 最高赔偿方案", foreground="red", font=("微软雅黑", 10, "bold"))
+        self.top_level_label = ttk.Label(panel, text="🏆 最高赔偿方案", foreground="red", font=(FONT_FAMILY, 10, "bold"))
 
-        self.final_label = ttk.Label(panel, text="最终方案增加百分比：")
+        self.final_label = ttk.Label(panel, text="最终方案增加百分比：", style="Section.TLabel")
         self.final_label.pack(anchor=tk.W, pady=(6, 1))
-        self.final_entry = ttk.Entry(panel, textvariable=self.entry_vars["final_increase"], font=("微软雅黑", 10), width=32)
+        self.final_entry = ttk.Entry(panel, textvariable=self.entry_vars["final_increase"], font=(FONT_FAMILY, 10), width=32)
         self.final_entry.pack(fill=tk.X, pady=1)
-        self.final_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+        self.register_detail_entry(self.final_entry)
 
-        ttk.Label(panel, text="退款范畴（悬停显示）：").pack(anchor=tk.W, pady=(6, 1))
-        scope_entry = ttk.Entry(panel, textvariable=self.entry_vars["scope"], font=("微软雅黑", 10), width=32)
+        ttk.Label(panel, text="退款范畴（悬停显示）：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        scope_entry = ttk.Entry(panel, textvariable=self.entry_vars["scope"], font=(FONT_FAMILY, 10), width=32)
         scope_entry.pack(fill=tk.X, pady=1)
-        scope_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+        self.register_detail_entry(scope_entry)
 
-        ttk.Label(panel, text="详细描述（话术显示）：").pack(anchor=tk.W, pady=(6, 1))
-        desc_entry = ttk.Entry(panel, textvariable=self.entry_vars["desc"], font=("微软雅黑", 10), width=32)
+        ttk.Label(panel, text="详细描述（话术显示）：", style="Section.TLabel").pack(anchor=tk.W, pady=(6, 1))
+        desc_entry = ttk.Entry(panel, textvariable=self.entry_vars["desc"], font=(FONT_FAMILY, 10), width=32)
         desc_entry.pack(fill=tk.X, pady=1)
-        desc_entry.bind("<KeyRelease>", lambda e: self.auto_save())
+        self.register_detail_entry(desc_entry)
 
         self.status_label.pack(anchor=tk.W, pady=(10, 0))
 
@@ -1018,21 +1157,73 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="📝 话术模板", command=self.open_template_editor).pack(side=tk.LEFT, padx=7, ipadx=1)
         ttk.Button(btn_frame, text="❌ 关闭", command=self.on_close).pack(side=tk.RIGHT, padx=7, ipadx=1)
 
+        manage_btn_frame = ttk.Frame(panel)
+        manage_btn_frame.pack(fill=tk.X, pady=(0, 12))
+        ttk.Button(manage_btn_frame, text="➕ 新增方案", command=self.add_category).pack(side=tk.LEFT, padx=7, ipadx=1)
+        ttk.Button(manage_btn_frame, text="🗑️ 删除选中", command=self.delete_category).pack(side=tk.LEFT, padx=7, ipadx=1)
+
         self.clear_detail_fields()
+        self.bind_detail_blank_focus(panel)
+
+    def register_detail_entry(self, entry):
+        self.detail_entries.append(entry)
+        entry.bind("<FocusOut>", lambda e: self.auto_save())
+        entry.bind("<Return>", lambda e: self.auto_save())
+
+    def on_detail_blank_click(self, event):
+        widget = event.widget
+        if widget in self.detail_entries:
+            return
+        widget_class = widget.winfo_class()
+        if widget_class in {"TCombobox", "Treeview", "TButton", "Button"}:
+            return
+        if self.focus_get() in self.detail_entries:
+            self.focus_set()
+
+    def bind_detail_blank_focus(self, widget):
+        widget_class = widget.winfo_class()
+        if widget not in self.detail_entries and widget_class not in {"TCombobox", "Treeview", "TButton", "Button"}:
+            widget.bind("<Button-1>", self.on_detail_blank_click, add="+")
+        for child in widget.winfo_children():
+            self.bind_detail_blank_focus(child)
 
     def refresh_tree(self):
         if not self.tree:
             return
         for row in self.tree.get_children():
             self.tree.delete(row)
-        for i, cat in enumerate(self.categories):
+
+        group_names = get_group_names(self.groups)
+        group_names.sort(key=lambda name: 0 if is_group_per_root_enabled(self.groups, name) else 1)
+        group_order = {name: i for i, name in enumerate(group_names)}
+        sorted_items = sorted(
+            enumerate(self.categories),
+            key=lambda item: (
+                group_order.get(item[1].get("group", ""), len(group_order)),
+                item[1].get("level", 0),
+                item[1].get("name", ""),
+                item[0],
+            ),
+        )
+
+        for i, cat in sorted_items:
             group_name = cat.get("group", "")
+            is_per_root = is_group_per_root_enabled(self.groups, group_name)
+            pay_type = "按根数" if is_per_root else ""
             ratio_percent = int(cat.get("ratio", 0) * 100)
             level = cat.get("level", 1)
             group_color = get_group_color(self.groups, group_name)
             tag_name = f"category_group_{i}"
             self.tree.tag_configure(tag_name, foreground=group_color)
-            self.tree.insert("", tk.END, iid=str(i), values=(group_name, cat["name"], f"{ratio_percent}%", f"方案{level}"), tags=(tag_name,))
+            self.tree.insert(
+                "",
+                tk.END,
+                iid=str(i),
+                text="●" if is_per_root and not self.per_root_icon else "",
+                image=self.per_root_icon if is_per_root and self.per_root_icon else "",
+                values=(group_name, pay_type, cat["name"], f"{ratio_percent}%", f"方案{level}"),
+                tags=(tag_name,),
+            )
 
     def select_category_by_name(self, name):
         for i, cat in enumerate(self.categories):
@@ -1157,19 +1348,48 @@ class SettingsDialog(tk.Toplevel):
         self.auto_save()
 
     def add_category(self):
-        selected_group = self.entry_vars["group"].get().strip() or (get_group_names(self.groups)[0] if self.groups else "腐烂")
+        name = self.entry_vars["name"].get().strip()
+        selected_group = self.entry_vars["group"].get().strip()
+        level_text = self.entry_vars["level"].get().strip()
 
-        same_group_cats = [c for c in self.categories if c.get("group", "") == selected_group]
-        max_level = max([c.get("level", 0) for c in same_group_cats], default=0)
-        new_level = max_level + 1
+        if not name or not selected_group or not level_text:
+            show_toast(self, "请先填写退款原因、所属分类和方案等级", "warning")
+            return
+
+        if any(c.get("name", "").strip() == name for c in self.categories):
+            show_toast(self, "退款方案已存在", "warning")
+            return
+
+        try:
+            ratio_percent = float(self.entry_vars["ratio"].get().strip())
+            if not (0 <= ratio_percent <= 100):
+                show_toast(self, "请输入有效的赔付比例", "warning")
+                return
+            ratio_val = ratio_percent / 100
+        except ValueError:
+            show_toast(self, "请输入有效的赔付比例", "warning")
+            return
+
+        try:
+            new_level = int(level_text)
+        except ValueError:
+            show_toast(self, "请先填写退款原因、所属分类和方案等级", "warning")
+            return
+
+        try:
+            final_increase = int(self.entry_vars["final_increase"].get().strip() or 5)
+        except ValueError:
+            show_toast(self, "请输入有效的最终方案增加百分比", "warning")
+            return
 
         new_cat = {
-            "name": "新方案",
-            "desc": "",
-            "ratio": 0.2,
+            "name": name,
+            "desc": self.entry_vars["desc"].get().strip(),
+            "ratio": ratio_val,
+            "scope": self.entry_vars["scope"].get().strip(),
             "group": selected_group,
             "level": new_level,
-            "final_increase": 5,
+            "final_increase": final_increase,
             "per_root_enabled": False,
             "template": DEFAULT_TEMPLATE,
             "template_upgrade": DEFAULT_UPGRADE_TEMPLATE,
@@ -1177,12 +1397,11 @@ class SettingsDialog(tk.Toplevel):
         self.categories.append(new_cat)
         self.refresh_tree()
         self.callback(self.categories)
-        children = self.tree.get_children()
-        if children:
-            last_idx = len(children) - 1
-            self.tree.selection_set(children[last_idx])
-            self.tree.focus(children[last_idx])
-            self.on_tree_select(None)
+        new_idx = len(self.categories) - 1
+        self.tree.selection_set(str(new_idx))
+        self.tree.focus(str(new_idx))
+        self.on_tree_select(None)
+        show_toast(self, "已新增退款方案", "success")
 
     def delete_category(self):
         selection = self.tree.selection()
@@ -1237,6 +1456,7 @@ class TemplateEditorDialog(tk.Toplevel):
         self.title(f"话术模板编辑 · {category.get('name', '')}")
         self.geometry("860x760")
         self.minsize(820, 700)
+        self.configure(bg=APP_BG)
         self.resizable(True, True)
 
         self.idx = idx
@@ -1254,27 +1474,29 @@ class TemplateEditorDialog(tk.Toplevel):
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(main_frame, text="可用的变量占位符：{name}退款原因、{desc}详细描述、{ratio}赔付比例、{money}赔付金额、{final_ratio}最终赔付比例",
-                  font=("微软雅黑", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+                  style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 10))
 
-        ttk.Label(main_frame, text="方案话术模板（初始方案使用）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.template_text = tk.Text(main_frame, height=6, font=("微软雅黑", 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
+        ttk.Label(main_frame, text="方案话术模板（初始方案使用）：", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        self.template_text = tk.Text(main_frame, height=6, font=(FONT_FAMILY, 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1,
+                                     bg=TEXT_BG, fg=PRIMARY_FG, insertbackground=PRIMARY_FG, padx=8, pady=8)
         self.template_text.pack(fill=tk.X, pady=(0, 5))
 
         placeholder_frame1 = ttk.Frame(main_frame)
         placeholder_frame1.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(placeholder_frame1, text="快速插入：", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(placeholder_frame1, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders1 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额")]
         for ph, label in placeholders1:
             ttk.Button(placeholder_frame1, text=label, width=8,
                       command=lambda p=ph: self.template_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(main_frame, text="升级话术模板（顾客不同意时使用）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.template_upgrade_text = tk.Text(main_frame, height=6, font=("微软雅黑", 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
+        ttk.Label(main_frame, text="升级话术模板（顾客不同意时使用）：", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        self.template_upgrade_text = tk.Text(main_frame, height=6, font=(FONT_FAMILY, 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1,
+                                             bg=TEXT_BG, fg=PRIMARY_FG, insertbackground=PRIMARY_FG, padx=8, pady=8)
         self.template_upgrade_text.pack(fill=tk.X, pady=(0, 5))
 
         placeholder_frame2 = ttk.Frame(main_frame)
         placeholder_frame2.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(placeholder_frame2, text="快速插入：", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(placeholder_frame2, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders2 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额"), ("{final_ratio}", "最终赔付比例")]
         for ph, label in placeholders2:
             ttk.Button(placeholder_frame2, text=label, width=10,
@@ -1284,14 +1506,15 @@ class TemplateEditorDialog(tk.Toplevel):
         self.per_root_frame.pack(fill=tk.X, pady=(10, 5))
 
         ttk.Label(self.per_root_frame, text="可用的变量占位符：{money}普通赔付金额、{root_money}按根数赔付金额、{total_roots}收到根数、{bad_roots}有问题根数",
-                  font=("微软雅黑", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 5))
+                  style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 5))
 
-        self.template_per_root_text = tk.Text(self.per_root_frame, height=4, font=("微软雅黑", 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
+        self.template_per_root_text = tk.Text(self.per_root_frame, height=4, font=(FONT_FAMILY, 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1,
+                                             bg=TEXT_BG, fg=PRIMARY_FG, insertbackground=PRIMARY_FG, padx=8, pady=8)
         self.template_per_root_text.pack(fill=tk.X, pady=(0, 5))
 
         placeholder_frame3 = ttk.Frame(self.per_root_frame)
         placeholder_frame3.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(placeholder_frame3, text="快速插入：", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(placeholder_frame3, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders3 = [("{money}", "普通金额"), ("{root_money}", "按根数金额"), ("{total_roots}", "收到根数"), ("{bad_roots}", "有问题根数")]
         for ph, label in placeholders3:
             ttk.Button(placeholder_frame3, text=label, width=10,
@@ -1363,6 +1586,7 @@ class GroupManagerDialog(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()
         self.title("分类管理")
+        self.configure(bg=APP_BG)
 
         self.groups = load_groups()
         self.categories = [dict(c) for c in categories]
@@ -1379,7 +1603,7 @@ class GroupManagerDialog(tk.Toplevel):
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         window_width = 620
-        window_height = 500
+        window_height = 600
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         self.geometry(f"{window_width}x{window_height}+{x}+{y}")
@@ -1395,7 +1619,7 @@ class GroupManagerDialog(tk.Toplevel):
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{x}+{y}")
             label = ttk.Label(tooltip, text=text, background="#ffffcc", relief=tk.SOLID, borderwidth=1,
-                              font=("微软雅黑", 9), padding=6, wraplength=220)
+                              font=(FONT_FAMILY, 9), padding=6, wraplength=220)
             label.pack()
         def on_leave(event):
             nonlocal tooltip
@@ -1409,7 +1633,7 @@ class GroupManagerDialog(tk.Toplevel):
         main_frame = ttk.Frame(self, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text="已设置的分类（可新增/编辑/删除）：", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        ttk.Label(main_frame, text="已设置的分类（可新增/编辑/删除）：", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 10))
 
         list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -1419,7 +1643,7 @@ class GroupManagerDialog(tk.Toplevel):
         self.group_tree.heading("name", text="分类名称")
         self.group_tree.heading("per_root", text="是否按根数赔付")
         self.group_tree.heading("color", text="标签颜色")
-        self.group_tree.column("name", width=260, anchor=tk.W)
+        self.group_tree.column("name", width=260, anchor=tk.CENTER)
         self.group_tree.column("per_root", width=130, anchor=tk.CENTER)
         self.group_tree.column("color", width=110, anchor=tk.CENTER)
         self.group_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1441,8 +1665,9 @@ class GroupManagerDialog(tk.Toplevel):
         input_frame = ttk.Frame(main_frame)
         input_frame.pack(fill=tk.X, pady=(0, 10))
         self.new_group_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=self.new_group_var, font=("微软雅黑", 11)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(input_frame, text="新增分类", command=self.add_group).pack(side=tk.RIGHT)
+        input_frame.columnconfigure(0, weight=1)
+        ttk.Entry(input_frame, textvariable=self.new_group_var, font=(FONT_FAMILY, 11)).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(input_frame, text="新增分类", command=self.add_group, width=8).grid(row=0, column=1, sticky="e", ipadx=1)
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(10, 0))
@@ -1553,7 +1778,7 @@ class GroupManagerDialog(tk.Toplevel):
         x, y, width, height = bbox
         current_name = self.groups[int(row_id)]["name"]
         self.name_edit_var = tk.StringVar(value=current_name)
-        self.name_edit_entry = ttk.Entry(self.group_tree, textvariable=self.name_edit_var, font=("微软雅黑", 11))
+        self.name_edit_entry = ttk.Entry(self.group_tree, textvariable=self.name_edit_var, font=(FONT_FAMILY, 11))
         self.name_edit_entry.place(x=x, y=y, width=width, height=height)
         self.name_edit_entry.focus_set()
         self.name_edit_entry.select_range(0, tk.END)
@@ -1653,8 +1878,14 @@ class LogViewerDialog(tk.Toplevel):
         self.title("赔付不同意记录")
         self.geometry("900x520")
         self.minsize(760, 420)
+        self.configure(bg=APP_BG)
         self.on_close_callback = on_close_callback
         self.logs = load_log()
+        self.summary_vars = {
+            "count": tk.StringVar(),
+            "amount": tk.StringVar(),
+            "top_reason": tk.StringVar(),
+        }
 
         self.build_ui()
         self.refresh_tree()
@@ -1675,19 +1906,12 @@ class LogViewerDialog(tk.Toplevel):
 
         summary_frame = ttk.Frame(main_frame)
         summary_frame.pack(fill=tk.X, pady=(0, 8))
-        total_count = len(self.logs)
-        total_amount = sum(float(log.get("refund_money") or 0) for log in self.logs)
-        by_reason = {}
-        for log in self.logs:
-            reason = log.get("reason", "未知")
-            by_reason[reason] = by_reason.get(reason, 0) + 1
-        top_reason = max(by_reason.items(), key=lambda item: item[1])[0] if by_reason else "无"
-        ttk.Label(summary_frame, text=f"记录数：{total_count}").pack(side=tk.LEFT, padx=(0, 18))
-        ttk.Label(summary_frame, text=f"累计被拒赔付：{round(total_amount, 2)} 元").pack(side=tk.LEFT, padx=(0, 18))
-        ttk.Label(summary_frame, text=f"最多原因：{top_reason}").pack(side=tk.LEFT)
+        ttk.Label(summary_frame, textvariable=self.summary_vars["count"], style="Section.TLabel").pack(side=tk.LEFT, padx=(0, 18))
+        ttk.Label(summary_frame, textvariable=self.summary_vars["amount"], style="Section.TLabel").pack(side=tk.LEFT, padx=(0, 18))
+        ttk.Label(summary_frame, textvariable=self.summary_vars["top_reason"], style="Section.TLabel").pack(side=tk.LEFT)
 
         columns = ("time", "amount", "reason", "roots", "ratio", "refund", "count", "event")
-        self.tree = ttk.Treeview(main_frame, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(main_frame, columns=columns, show="headings", selectmode="extended")
         headings = {
             "time": "时间",
             "amount": "实付金额",
@@ -1711,7 +1935,7 @@ class LogViewerDialog(tk.Toplevel):
         for col in columns:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor=tk.CENTER)
-        self.tree.column("reason", anchor=tk.W)
+        self.tree.column("reason", anchor=tk.CENTER)
 
         scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -1721,16 +1945,37 @@ class LogViewerDialog(tk.Toplevel):
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
         ttk.Button(btn_frame, text="刷新", command=self.reload_logs).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="分析", command=self.open_analysis).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="删除选中", command=self.delete_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="关闭", command=self.on_close).pack(side=tk.RIGHT, padx=5)
 
     def reload_logs(self):
         self.logs = load_log()
         self.refresh_tree()
 
+    def update_summary(self):
+        total_count = len(self.logs)
+        total_amount = 0
+        by_reason = {}
+        for log in self.logs:
+            try:
+                refund_money = float(log.get("refund_money") or 0)
+            except (TypeError, ValueError):
+                refund_money = 0
+            total_amount += refund_money
+            reason = log.get("reason", "未知")
+            by_reason[reason] = by_reason.get(reason, 0) + 1
+        top_reason = max(by_reason.items(), key=lambda item: item[1])[0] if by_reason else "无"
+        self.summary_vars["count"].set(f"记录数：{total_count}")
+        self.summary_vars["amount"].set(f"累计被拒赔付：{round(total_amount, 2)} 元")
+        self.summary_vars["top_reason"].set(f"最多原因：{top_reason}")
+
     def refresh_tree(self):
+        self.update_summary()
         for row in self.tree.get_children():
             self.tree.delete(row)
-        for i, log in enumerate(reversed(self.logs)):
+        for original_idx in range(len(self.logs) - 1, -1, -1):
+            log = self.logs[original_idx]
             total_roots = log.get("total_roots", "")
             bad_roots = log.get("bad_roots", "")
             roots = f"{bad_roots}/{total_roots}" if total_roots and bad_roots else "-"
@@ -1742,7 +1987,7 @@ class LogViewerDialog(tk.Toplevel):
             refund = log.get("refund_money")
             if refund is None:
                 refund = round(float(log.get("amount", 0)) * float(log.get("ratio", 0)), 2)
-            self.tree.insert("", tk.END, iid=str(i), values=(
+            self.tree.insert("", tk.END, iid=str(original_idx), values=(
                 log.get("time", "-"),
                 log.get("amount", ""),
                 log.get("reason", ""),
@@ -1752,6 +1997,75 @@ class LogViewerDialog(tk.Toplevel):
                 log.get("disagree_count", 1),
                 log.get("event", "赔付不同意"),
             ))
+
+    def delete_selected(self):
+        selection = self.tree.selection()
+        if not selection:
+            show_toast(self, "请先选中要删除的日志记录", "warning")
+            return
+        count = len(selection)
+        if not messagebox.askyesno("确认删除", f"确定删除选中的 {count} 条记录吗？", parent=self):
+            return
+        delete_indexes = sorted((int(item) for item in selection), reverse=True)
+        for idx in delete_indexes:
+            if 0 <= idx < len(self.logs):
+                del self.logs[idx]
+        save_log(self.logs)
+        self.refresh_tree()
+        show_toast(self, f"已删除 {count} 条记录", "success")
+
+    def open_analysis(self):
+        if not self.logs:
+            show_toast(self, "暂无日志可分析", "info")
+            return
+
+        total = len(self.logs)
+        stats = {}
+        for log in self.logs:
+            reason = log.get("reason", "未知")
+            ratio = log.get("ratio", 0)
+            try:
+                ratio_percent = int(round(float(ratio) * 100))
+            except (TypeError, ValueError):
+                ratio_percent = 0
+            key = (reason, ratio_percent)
+            stats[key] = stats.get(key, 0) + 1
+
+        dialog = tk.Toplevel(self)
+        dialog.title("拒绝赔付分析")
+        dialog.geometry("560x460")
+        dialog.minsize(520, 380)
+        dialog.configure(bg=APP_BG)
+        dialog.transient(self)
+
+        main_frame = ttk.Frame(dialog, padding=12)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(main_frame, text=f"共 {total} 条拒绝记录，以下占比为各类型在拒绝记录中的占比。", style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 10))
+
+        columns = ("reason", "ratio", "count", "percent")
+        analysis_tree = ttk.Treeview(main_frame, columns=columns, show="headings", selectmode="browse")
+        analysis_tree.heading("reason", text="退款原因")
+        analysis_tree.heading("ratio", text="赔付比例")
+        analysis_tree.heading("count", text="拒绝次数")
+        analysis_tree.heading("percent", text="占比")
+        analysis_tree.column("reason", width=180, anchor=tk.CENTER)
+        analysis_tree.column("ratio", width=100, anchor=tk.CENTER)
+        analysis_tree.column("count", width=90, anchor=tk.CENTER)
+        analysis_tree.column("percent", width=90, anchor=tk.CENTER)
+
+        sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
+        for i, ((reason, ratio_percent), count) in enumerate(sorted_stats):
+            percent = count / total * 100
+            analysis_tree.insert("", tk.END, iid=str(i), values=(reason, f"{ratio_percent}%", count, f"{percent:.1f}%"))
+
+        scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=analysis_tree.yview)
+        analysis_tree.configure(yscrollcommand=scrollbar.set)
+        analysis_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
+        ttk.Button(btn_frame, text="关闭", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
 
     def on_close(self):
         if self.on_close_callback:

@@ -1,4 +1,5 @@
 ﻿altgraph==0.17.5
+cairosvg
 keyboard==0.13.5
 packaging
 pefile==2024.8.26
