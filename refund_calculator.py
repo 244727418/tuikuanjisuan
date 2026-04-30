@@ -1,8 +1,10 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, colorchooser
+from tkinter import ttk, messagebox, colorchooser, filedialog
 import json
 import os
 import io
+import csv
+import sys
 from datetime import datetime
 
 try:
@@ -164,6 +166,29 @@ TEXT_BG = "#fbfdff"
 MUTED_FG = "#6b7280"
 PRIMARY_FG = "#1f2937"
 ACCENT = "#2563eb"
+BUTTON_VARIANTS = {
+    "primary": {"fill": "#2563eb", "hover": "#1d4ed8", "press": "#1e40af", "text": "#ffffff", "outline": "#1d4ed8"},
+    "success": {"fill": "#16a34a", "hover": "#15803d", "press": "#166534", "text": "#ffffff", "outline": "#15803d"},
+    "danger": {"fill": "#dc2626", "hover": "#b91c1c", "press": "#991b1b", "text": "#ffffff", "outline": "#b91c1c"},
+    "warning": {"fill": "#f59e0b", "hover": "#d97706", "press": "#b45309", "text": "#111827", "outline": "#d97706"},
+    "secondary": {"fill": "#e8f0fb", "hover": "#dbeafe", "press": "#bfdbfe", "text": "#1e3a8a", "outline": "#bfdbfe"},
+    "ghost": {"fill": "#ffffff", "hover": "#f3f6fb", "press": "#e5eaf3", "text": "#374151", "outline": "#d6deea"},
+}
+
+
+def app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resource_path(relative_path):
+    base_dir = getattr(sys, "_MEIPASS", app_dir())
+    return os.path.join(base_dir, relative_path)
+
+
+def user_data_path(filename):
+    return os.path.join(app_dir(), filename)
 
 
 def show_toast(parent, message, kind="info"):
@@ -237,17 +262,20 @@ def show_toast(parent, message, kind="info"):
 
 
 def load_per_root_icon(size=18):
-    if Image is not None and ImageTk is not None and os.path.exists(PER_ROOT_ICON_FILE):
+    png_icon = resource_path(PER_ROOT_ICON_FILE)
+    svg_icon = resource_path(PER_ROOT_SVG_ICON_FILE)
+
+    if Image is not None and ImageTk is not None and os.path.exists(png_icon):
         try:
-            image = Image.open(PER_ROOT_ICON_FILE).convert("RGBA")
+            image = Image.open(png_icon).convert("RGBA")
             image.thumbnail((size, size), Image.LANCZOS)
             return ImageTk.PhotoImage(image)
         except Exception:
             pass
 
-    if Image is not None and ImageTk is not None and cairosvg is not None and os.path.exists(PER_ROOT_SVG_ICON_FILE):
+    if Image is not None and ImageTk is not None and cairosvg is not None and os.path.exists(svg_icon):
         try:
-            png_bytes = cairosvg.svg2png(url=PER_ROOT_SVG_ICON_FILE, output_width=size, output_height=size)
+            png_bytes = cairosvg.svg2png(url=svg_icon, output_width=size, output_height=size)
             image = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
             return ImageTk.PhotoImage(image)
         except Exception:
@@ -334,19 +362,19 @@ def normalize_data(data):
 def load_legacy_data():
     data = default_data()
 
-    legacy_categories = read_json_file(CONFIG_FILE, None)
+    legacy_categories = read_json_file(user_data_path(CONFIG_FILE), None)
     if isinstance(legacy_categories, list):
         data["categories"] = legacy_categories
 
-    legacy_groups = read_json_file(GROUPS_FILE, None)
+    legacy_groups = read_json_file(user_data_path(GROUPS_FILE), None)
     if isinstance(legacy_groups, list):
         data["groups"] = legacy_groups
 
-    legacy_logs = read_json_file(LOG_FILE, None)
+    legacy_logs = read_json_file(user_data_path(LOG_FILE), None)
     if isinstance(legacy_logs, list):
         data["logs"] = legacy_logs
 
-    legacy_config = read_json_file(APP_CONFIG_FILE, None)
+    legacy_config = read_json_file(user_data_path(APP_CONFIG_FILE), None)
     if isinstance(legacy_config, dict):
         data["app_config"] = legacy_config
 
@@ -354,14 +382,18 @@ def load_legacy_data():
 
 
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return normalize_data(read_json_file(DATA_FILE, {}))
+    writable_data = user_data_path(DATA_FILE)
+    bundled_data = resource_path(DATA_FILE)
+    if os.path.exists(writable_data):
+        return normalize_data(read_json_file(writable_data, {}))
+    if os.path.exists(bundled_data):
+        return normalize_data(read_json_file(bundled_data, {}))
     return load_legacy_data()
 
 
 def save_data(data):
     normalized = normalize_data(data)
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
+    with open(user_data_path(DATA_FILE), "w", encoding="utf-8") as f:
         json.dump(normalized, f, ensure_ascii=False, indent=2)
 
 
@@ -537,11 +569,142 @@ class RoundedButton(tk.Canvas):
 
 
 # ==================== 主应用类 ====================
+class RoundedActionButton(tk.Canvas):
+    def __init__(self, parent, text, command, variant="secondary", width=None, height=34, radius=13):
+        bg = parent.cget("bg") if "bg" in parent.keys() else APP_BG
+        measured_width = max(74, len(text) * 15 + 28)
+        super().__init__(
+            parent,
+            width=width or measured_width,
+            height=height,
+            highlightthickness=0,
+            bd=0,
+            bg=bg,
+        )
+        self.text = text
+        self.command = command
+        self.height = height
+        self.radius = radius
+        self.palette = BUTTON_VARIANTS.get(variant, BUTTON_VARIANTS["secondary"])
+        self.current_fill = self.palette["fill"]
+        self.configure(cursor="hand2")
+        self.bind("<Configure>", lambda e: self.draw())
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<ButtonPress-1>", self.on_press)
+        self.bind("<ButtonRelease-1>", self.on_release)
+        self.draw()
+
+    def rounded_rect(self, x1, y1, x2, y2, radius, **kwargs):
+        points = [
+            x1 + radius, y1,
+            x2 - radius, y1,
+            x2, y1,
+            x2, y1 + radius,
+            x2, y2 - radius,
+            x2, y2,
+            x2 - radius, y2,
+            x1 + radius, y2,
+            x1, y2,
+            x1, y2 - radius,
+            x1, y1 + radius,
+            x1, y1,
+        ]
+        return self.create_polygon(points, smooth=True, **kwargs)
+
+    def draw(self):
+        self.delete("all")
+        width = max(self.winfo_width(), 1)
+        height = max(self.winfo_height(), self.height)
+        self.rounded_rect(
+            2,
+            2,
+            width - 2,
+            height - 2,
+            self.radius,
+            fill=self.current_fill,
+            outline=self.palette["outline"],
+            width=1,
+        )
+        self.create_text(
+            width // 2,
+            height // 2,
+            text=self.text,
+            fill=self.palette["text"],
+            font=(FONT_FAMILY, 10, "bold"),
+        )
+
+    def on_enter(self, event):
+        self.current_fill = self.palette["hover"]
+        self.draw()
+
+    def on_leave(self, event):
+        self.current_fill = self.palette["fill"]
+        self.draw()
+
+    def on_press(self, event):
+        self.current_fill = self.palette["press"]
+        self.draw()
+
+    def on_release(self, event):
+        self.current_fill = self.palette["hover"]
+        self.draw()
+        if 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height():
+            self.command()
+
+
+class RoundedColorSwatch(tk.Canvas):
+    def __init__(self, parent, color, command, size=30):
+        bg = parent.cget("bg") if "bg" in parent.keys() else APP_BG
+        super().__init__(parent, width=size, height=size, highlightthickness=0, bd=0, bg=bg)
+        self.color = color
+        self.command = command
+        self.size = size
+        self.selected = False
+        self.configure(cursor="hand2")
+        self.bind("<Configure>", lambda e: self.draw())
+        self.bind("<ButtonRelease-1>", self.on_release)
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        width = max(self.winfo_width(), 1)
+        height = max(self.winfo_height(), self.size)
+        outline = "#111827" if self.selected else "#d6deea"
+        outline_width = 3 if self.selected else 1
+        self.create_polygon(
+            8, 2,
+            width - 8, 2,
+            width - 2, 8,
+            width - 2, height - 8,
+            width - 8, height - 2,
+            8, height - 2,
+            2, height - 8,
+            2, 8,
+            smooth=True,
+            fill=self.color,
+            outline=outline,
+            width=outline_width,
+        )
+
+    def set_selected(self, selected):
+        self.selected = selected
+        self.draw()
+
+    def on_release(self, event):
+        if 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height():
+            self.command()
+
+
+def action_button(parent, text, command, variant="secondary", width=None, height=34):
+    return RoundedActionButton(parent, text=text, command=command, variant=variant, width=width, height=height)
+
+
 class RefundApp:
     def __init__(self, root):
         self.root = root
         self.root.title("生鲜山药售后 · 话术生成器")
-        self.root.geometry("680x840")
+        self.root.geometry("680x890")
         self.root.minsize(640, 800)
         self.root.configure(bg=APP_BG)
         self.configure_styles()
@@ -570,7 +733,7 @@ class RefundApp:
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         window_width = 680
-        window_height = 840
+        window_height = 890
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
@@ -632,9 +795,9 @@ class RefundApp:
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        ttk.Button(right_frame, text="⚙️ 设置管理", command=self.open_settings).pack(fill=tk.X, pady=4, ipadx=1)
-        ttk.Button(right_frame, text="🏷️ 分类管理", command=self.open_group_manager).pack(fill=tk.X, pady=4, ipadx=1)
-        ttk.Button(right_frame, text="📊 查看记录日志", command=self.open_log_viewer).pack(fill=tk.X, pady=4, ipadx=1)
+        action_button(right_frame, text="⚙️ 设置管理", command=self.open_settings, variant="primary", width=170).pack(fill=tk.X, pady=4)
+        action_button(right_frame, text="🏷️ 分类管理", command=self.open_group_manager, variant="secondary", width=170).pack(fill=tk.X, pady=4)
+        action_button(right_frame, text="📊 查看记录日志", command=self.open_log_viewer, variant="secondary", width=170).pack(fill=tk.X, pady=4)
         ttk.Separator(right_frame).pack(fill=tk.X, pady=4)
 
         ttk.Label(right_frame, text="实付金额 (元)：", style="Section.TLabel").pack(anchor=tk.W)
@@ -661,7 +824,8 @@ class RefundApp:
                                     relief=tk.SOLID, borderwidth=1, bg=TEXT_BG, fg=PRIMARY_FG,
                                     insertbackground=PRIMARY_FG, padx=8, pady=8)
         self.history_text.pack(fill=tk.BOTH, expand=True, pady=(3, 4))
-        self.disagree_btn = ttk.Button(right_frame, text="顾客不同意 → 升级方案", command=self.on_disagree)
+        action_button(right_frame, text="导出表格", command=self.export_refund_table, variant="success", width=170).pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        self.disagree_btn = action_button(right_frame, text="顾客不同意 → 升级方案", command=self.on_disagree, variant="warning", width=170)
         self.disagree_btn.pack(fill=tk.X, pady=(2, 4))
 
         # 底部状态栏
@@ -996,6 +1160,88 @@ class RefundApp:
             on_close_callback=lambda: setattr(self, "log_viewer_dialog", None),
         )
 
+    def export_refund_table(self):
+        if not self.categories:
+            show_toast(self.root, "暂无退款方案可导出", "info")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"退款方案表_{timestamp}.csv"
+        file_path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="导出退款方案表格",
+            defaultextension=".csv",
+            initialfile=default_name,
+            filetypes=[("CSV 表格", "*.csv"), ("所有文件", "*.*")],
+        )
+        if not file_path:
+            return
+
+        group_names = get_group_names(self.groups)
+        group_order = {name: i for i, name in enumerate(group_names)}
+        sorted_categories = sorted(
+            self.categories,
+            key=lambda cat: (
+                group_order.get(cat.get("group", ""), len(group_order)),
+                cat.get("level", 0),
+                cat.get("name", ""),
+            ),
+        )
+
+        headers = [
+            "退款类型",
+            "方案",
+            "赔付比例",
+            "赔付方式",
+            "方案等级",
+            "退款范围",
+            "详细描述",
+            "最终方案增加百分比",
+            "最终赔付比例",
+            "初始话术",
+            "升级话术",
+            "按根数话术",
+        ]
+
+        try:
+            with open(file_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                for cat in sorted_categories:
+                    group = cat.get("group", "")
+                    ratio = cat.get("ratio", 0)
+                    try:
+                        ratio_percent = int(round(float(ratio) * 100))
+                        ratio_text = f"{ratio_percent}%"
+                    except (TypeError, ValueError):
+                        ratio_text = ""
+                    final_increase = cat.get("final_increase", 5)
+                    try:
+                        final_ratio = min(float(ratio) * 100 + float(final_increase), 100)
+                        final_ratio_text = f"{int(round(final_ratio))}%"
+                    except (TypeError, ValueError):
+                        final_ratio_text = ""
+                    writer.writerow([
+                        group,
+                        cat.get("name", ""),
+                        ratio_text,
+                        "按根数赔付" if is_group_per_root_enabled(self.groups, group) else "按订单金额比例赔付",
+                        cat.get("level", ""),
+                        cat.get("scope", ""),
+                        cat.get("desc", ""),
+                        f"{final_increase}%",
+                        final_ratio_text,
+                        cat.get("template") or DEFAULT_TEMPLATE,
+                        cat.get("template_upgrade") or DEFAULT_UPGRADE_TEMPLATE,
+                        cat.get("template_per_root", ""),
+                    ])
+        except Exception as exc:
+            messagebox.showerror("导出失败", f"导出表格失败：{exc}", parent=self.root)
+            return
+
+        self.status_var.set(f"已导出退款方案表格：{file_path}")
+        show_toast(self.root, "退款方案表格已导出", "success")
+
     def on_groups_updated(self, new_groups, new_categories=None):
         self.groups = new_groups
         save_groups(self.groups)
@@ -1153,14 +1399,14 @@ class SettingsDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(panel)
         btn_frame.pack(fill=tk.X, pady=12)
-        ttk.Button(btn_frame, text="💾 保存修改", command=self.save_current).pack(side=tk.LEFT, padx=7, ipadx=1)
-        ttk.Button(btn_frame, text="📝 话术模板", command=self.open_template_editor).pack(side=tk.LEFT, padx=7, ipadx=1)
-        ttk.Button(btn_frame, text="❌ 关闭", command=self.on_close).pack(side=tk.RIGHT, padx=7, ipadx=1)
+        action_button(btn_frame, text="💾 保存修改", command=self.save_current, variant="primary").pack(side=tk.LEFT, padx=7)
+        action_button(btn_frame, text="📝 话术模板", command=self.open_template_editor, variant="secondary").pack(side=tk.LEFT, padx=7)
+        action_button(btn_frame, text="❌ 关闭", command=self.on_close, variant="ghost").pack(side=tk.RIGHT, padx=7)
 
         manage_btn_frame = ttk.Frame(panel)
         manage_btn_frame.pack(fill=tk.X, pady=(0, 12))
-        ttk.Button(manage_btn_frame, text="➕ 新增方案", command=self.add_category).pack(side=tk.LEFT, padx=7, ipadx=1)
-        ttk.Button(manage_btn_frame, text="🗑️ 删除选中", command=self.delete_category).pack(side=tk.LEFT, padx=7, ipadx=1)
+        action_button(manage_btn_frame, text="➕ 新增方案", command=self.add_category, variant="success").pack(side=tk.LEFT, padx=7)
+        action_button(manage_btn_frame, text="🗑️ 删除选中", command=self.delete_category, variant="danger").pack(side=tk.LEFT, padx=7)
 
         self.clear_detail_fields()
         self.bind_detail_blank_focus(panel)
@@ -1175,14 +1421,14 @@ class SettingsDialog(tk.Toplevel):
         if widget in self.detail_entries:
             return
         widget_class = widget.winfo_class()
-        if widget_class in {"TCombobox", "Treeview", "TButton", "Button"}:
+        if widget_class in {"TCombobox", "Treeview", "TButton", "Button", "Canvas"}:
             return
         if self.focus_get() in self.detail_entries:
             self.focus_set()
 
     def bind_detail_blank_focus(self, widget):
         widget_class = widget.winfo_class()
-        if widget not in self.detail_entries and widget_class not in {"TCombobox", "Treeview", "TButton", "Button"}:
+        if widget not in self.detail_entries and widget_class not in {"TCombobox", "Treeview", "TButton", "Button", "Canvas"}:
             widget.bind("<Button-1>", self.on_detail_blank_click, add="+")
         for child in widget.winfo_children():
             self.bind_detail_blank_focus(child)
@@ -1486,8 +1732,8 @@ class TemplateEditorDialog(tk.Toplevel):
         ttk.Label(placeholder_frame1, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders1 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额")]
         for ph, label in placeholders1:
-            ttk.Button(placeholder_frame1, text=label, width=8,
-                      command=lambda p=ph: self.template_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
+            action_button(placeholder_frame1, text=label, width=78, height=30,
+                          command=lambda p=ph: self.template_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
 
         ttk.Label(main_frame, text="升级话术模板（顾客不同意时使用）：", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 5))
         self.template_upgrade_text = tk.Text(main_frame, height=6, font=(FONT_FAMILY, 10), wrap=tk.WORD, relief=tk.SOLID, borderwidth=1,
@@ -1499,8 +1745,8 @@ class TemplateEditorDialog(tk.Toplevel):
         ttk.Label(placeholder_frame2, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders2 = [("{name}", "退款原因"), ("{desc}", "详细描述"), ("{ratio}", "赔付比例"), ("{money}", "赔付金额"), ("{final_ratio}", "最终赔付比例")]
         for ph, label in placeholders2:
-            ttk.Button(placeholder_frame2, text=label, width=10,
-                      command=lambda p=ph: self.template_upgrade_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
+            action_button(placeholder_frame2, text=label, width=88, height=30,
+                          command=lambda p=ph: self.template_upgrade_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
 
         self.per_root_frame = ttk.LabelFrame(main_frame, text="按根数赔付话术模板", padding=5)
         self.per_root_frame.pack(fill=tk.X, pady=(10, 5))
@@ -1517,8 +1763,8 @@ class TemplateEditorDialog(tk.Toplevel):
         ttk.Label(placeholder_frame3, text="快速插入：", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 5))
         placeholders3 = [("{money}", "普通金额"), ("{root_money}", "按根数金额"), ("{total_roots}", "收到根数"), ("{bad_roots}", "有问题根数")]
         for ph, label in placeholders3:
-            ttk.Button(placeholder_frame3, text=label, width=10,
-                      command=lambda p=ph: self.template_per_root_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
+            action_button(placeholder_frame3, text=label, width=88, height=30,
+                          command=lambda p=ph: self.template_per_root_text.insert(tk.END, p)).pack(side=tk.LEFT, padx=2)
 
         if not self.category.get("template"):
             default_template, _ = self.generate_default_templates()
@@ -1539,9 +1785,9 @@ class TemplateEditorDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="💾 保存", command=self.on_save).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="恢复默认", command=self.on_reset).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="❌ 取消", command=self.on_cancel).pack(side=tk.RIGHT, padx=5)
+        action_button(btn_frame, text="💾 保存", command=self.on_save, variant="primary").pack(side=tk.LEFT, padx=5)
+        action_button(btn_frame, text="恢复默认", command=self.on_reset, variant="secondary").pack(side=tk.LEFT, padx=5)
+        action_button(btn_frame, text="❌ 取消", command=self.on_cancel, variant="ghost").pack(side=tk.RIGHT, padx=5)
 
     def generate_default_templates(self):
         name = self.category.get("name", "")
@@ -1667,29 +1913,24 @@ class GroupManagerDialog(tk.Toplevel):
         self.new_group_var = tk.StringVar()
         input_frame.columnconfigure(0, weight=1)
         ttk.Entry(input_frame, textvariable=self.new_group_var, font=(FONT_FAMILY, 11)).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(input_frame, text="新增分类", command=self.add_group, width=8).grid(row=0, column=1, sticky="e", ipadx=1)
+        action_button(input_frame, text="新增分类", command=self.add_group, variant="success", width=88).grid(row=0, column=1, sticky="e")
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(10, 0))
-        btn_del_grp = ttk.Button(btn_frame, text="删除选中", command=self.delete_group)
-        btn_del_grp.pack(side=tk.LEFT, padx=8, ipadx=1)
+        btn_del_grp = action_button(btn_frame, text="删除选中", command=self.delete_group, variant="danger")
+        btn_del_grp.pack(side=tk.LEFT, padx=8)
         if DEBUG_MODE:
             self.create_tooltip(btn_del_grp, "[分类窗口_删除选中]")
-        ttk.Button(btn_frame, text="关闭", command=self.on_close).pack(side=tk.RIGHT, padx=8, ipadx=1)
+        action_button(btn_frame, text="关闭", command=self.on_close, variant="ghost").pack(side=tk.RIGHT, padx=8)
 
     def render_recent_color_buttons(self):
         for widget in self.color_frame.winfo_children():
             widget.destroy()
         self.color_buttons = []
         for color in self.recent_colors:
-            swatch = tk.Button(
+            swatch = RoundedColorSwatch(
                 self.color_frame,
-                text="",
-                width=3,
-                bg=color,
-                activebackground=color,
-                relief=tk.RAISED,
-                bd=2,
+                color=color,
                 command=lambda c=color: self.set_selected_group_color(c),
             )
             swatch.pack(side=tk.LEFT, padx=3)
@@ -1721,7 +1962,7 @@ class GroupManagerDialog(tk.Toplevel):
             if 0 <= idx < len(self.groups):
                 selected_color = self.groups[idx].get("color", "")
         for button in getattr(self, "color_buttons", []):
-            button.config(relief=tk.SUNKEN if button.cget("bg") == selected_color else tk.RAISED)
+            button.set_selected(button.color == selected_color)
 
     def set_selected_group_color(self, color):
         selection = self.group_tree.selection()
@@ -1944,10 +2185,10 @@ class LogViewerDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
-        ttk.Button(btn_frame, text="刷新", command=self.reload_logs).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="分析", command=self.open_analysis).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="删除选中", command=self.delete_selected).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="关闭", command=self.on_close).pack(side=tk.RIGHT, padx=5)
+        action_button(btn_frame, text="刷新", command=self.reload_logs, variant="secondary").pack(side=tk.LEFT, padx=5)
+        action_button(btn_frame, text="分析", command=self.open_analysis, variant="primary").pack(side=tk.LEFT, padx=5)
+        action_button(btn_frame, text="删除选中", command=self.delete_selected, variant="danger").pack(side=tk.LEFT, padx=5)
+        action_button(btn_frame, text="关闭", command=self.on_close, variant="ghost").pack(side=tk.RIGHT, padx=5)
 
     def reload_logs(self):
         self.logs = load_log()
@@ -2065,7 +2306,7 @@ class LogViewerDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
-        ttk.Button(btn_frame, text="关闭", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+        action_button(btn_frame, text="关闭", command=dialog.destroy, variant="ghost").pack(side=tk.RIGHT, padx=5)
 
     def on_close(self):
         if self.on_close_callback:
